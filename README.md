@@ -35,11 +35,13 @@ The mod runs programs. It calls `hc machine ls --json` to find machines, and `zo
 | `cmd-p` | Opens Navigator (from `keys.json`). |
 | Type | Filters the list. Each word you type has to match. |
 | `up`, `down` | Moves the selection. It wraps at both ends. |
-| `enter` or click | Goes to the open space, or makes a new space in the folder. |
+| `enter` or click | Goes to the open space or the agent's tab, or makes a new space in the folder. |
 | `alt-enter` | Makes a new space in the folder even when one is open there. |
-| `ctrl-x` | Closes the selected open space. The app asks you to confirm. |
+| `ctrl-x` | Closes the selected open space, and the app asks you to confirm. On an agent row it asks for a second `ctrl-x`, then closes that agent's pane. Other agents in the same tab keep running. |
 | `tab` | Switches the machine filter: all, this computer, then each connected machine. |
 | `escape` | Closes Navigator. |
+
+A space with two or more agents shows one row per agent instead of one row for the space, labelled `space › tab` with that agent's status and title, so an idle agent next to busy ones stays visible.
 
 ## How remote machines work
 

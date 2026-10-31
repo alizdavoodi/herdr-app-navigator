@@ -1,6 +1,6 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { spaces, panes, run, hc, exec, theme, props, closeOverlay, home } from "herdr";
+import { spaces, panes, agents, run, hc, exec, theme, props, closeOverlay, home } from "herdr";
 
 const SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const WINDOW = 12;
@@ -9,6 +9,15 @@ const ALL = Symbol("all machines");
 const machineLabel = (machine) => machine ?? "this computer";
 const openKey = (machine, path) => `${machine ?? ""}\0${path}`;
 const firstLine = (text) => (text ?? "").trim().split("\n")[0];
+const tabLabel = (tabName) => (/^\d+$/.test(tabName) ? `tab ${tabName}` : tabName);
+// Agents put spinner frames, icon-font glyphs and one-character status marks ("π >") ahead of
+// their task in the title; keep only the task, so a spinner frame is not a new title.
+const cleanTitle = (title) =>
+  title
+    .replace(/[\u2800-\u28FF\uE000-\uF8FF\u{F0000}-\u{10FFFF}]/gu, "")
+    .replace(/^(?:(?:[^\p{L}\p{N}\s]+|[^\x00-\x7F])(?:\s+|$))+/u, "")
+    .replace(/\s+/g, " ")
+    .trim();
 
 function isSubsequence(needle, hay) {
   let at = 0;
@@ -90,7 +99,7 @@ function liveFolders(spaceList, paneList, homeOf) {
   return folders;
 }
 
-function rankedRows(sources, spaceList, folders, query, scope, homeOf) {
+function rankedRows(sources, spaceList, folders, agentsBySpace, query, scope, homeOf) {
   const openIndex = new Map();
   for (const s of spaceList) {
     for (const path of folders.get(s.id)) {
@@ -107,7 +116,26 @@ function rankedRows(sources, spaceList, folders, query, scope, homeOf) {
     if (!machineLower.has(row.machine)) machineLower.set(row.machine, machineLabel(row.machine).toLowerCase());
     const score = matchScore(tokens, baseLower, displayLower, machineLower.get(row.machine));
     if (score < 0) return;
-    ranked.push({ row, base, display, rank: score * 10 + (row.kind === "open" ? 250 : 0) + weight });
+    ranked.push({ row, base, display, rank: score * 10 + (row.kind === "folder" ? 0 : 250) + weight });
+  };
+  const agentRowsDone = new Set();
+  const considerSpace = (space, machine, path, display, displayLower, weight) => {
+    const spaceAgents = agentsBySpace.get(space.id) ?? [];
+    if (spaceAgents.length < 2) {
+      consider({ kind: "open", space, machine, path }, space.name, space.name.toLowerCase(), display, displayLower, weight);
+      return;
+    }
+    if (agentRowsDone.has(space.id)) return;
+    agentRowsDone.add(space.id);
+    for (const a of spaceAgents) {
+      const label = tabLabel(a.tab_name);
+      const title = cleanTitle(a.title);
+      const base = `${space.name} › ${label}`;
+      const text = `${a.app ?? a.program.name}  ${title}`;
+      const where = `${folders.get(space.id).map((p) => tilde(homeOf(machine), p)).join(" ")} ${text}`.toLowerCase();
+      const agent = { address: a.address, pane: a.pane, app: a.app ?? a.program.name };
+      consider({ kind: "agent", space, machine, path, agent }, base, base.toLowerCase(), text, where, weight);
+    }
   };
 
   const claimed = new Set();
@@ -120,7 +148,7 @@ function rankedRows(sources, spaceList, folders, query, scope, homeOf) {
         continue;
       }
       claimed.add(space.id);
-      consider({ kind: "open", space, machine, path: f.path }, space.name, space.name.toLowerCase(), f.display, f.displayLower, f.weight);
+      considerSpace(space, machine, f.path, f.display, f.displayLower, f.weight);
     }
   }
   for (const s of spaceList) {
@@ -128,7 +156,7 @@ function rankedRows(sources, spaceList, folders, query, scope, homeOf) {
     const machine = s.machine ?? null;
     const path = folders.get(s.id)[0] ?? "";
     const display = tilde(homeOf(machine), path);
-    consider({ kind: "open", space: s, machine, path }, s.name, s.name.toLowerCase(), display, display.toLowerCase(), 0);
+    considerSpace(s, machine, path, display, display.toLowerCase(), 0);
   }
   return ranked.sort((a, b) => b.rank - a.rank);
 }
@@ -137,7 +165,7 @@ const KEYS = {
   escape: (nav) => nav.close(),
   enter: (nav, picked) => nav.go(picked, false),
   "alt-enter": (nav, picked) => nav.go(picked, true),
-  "ctrl-x": (nav, picked) => nav.closeSpace(picked),
+  "ctrl-x": (nav, picked) => nav.closeRow(picked),
   up: (nav, _picked, count) => nav.move(-1, count),
   down: (nav, _picked, count) => nav.move(1, count),
   tab: (nav) => nav.nextScope(),
@@ -149,6 +177,7 @@ export default class Navigator extends View {
     this.at = 0;
     this.scope = ALL;
     this.done = false;
+    this.armed = null;
     this.machines = [null];
     this.sources = new Map([[null, { state: "loading" }]]);
     this.version = 0;
@@ -156,6 +185,7 @@ export default class Navigator extends View {
     this.input = InputState.new({ placeholder: "Folder, space or machine…" });
     this.input.on("change", (_e, cx) => {
       this.query = this.input.value();
+      this.armed = null;
       this.at = 0;
       this.ranked();
       cx.notify();
@@ -202,14 +232,21 @@ export default class Navigator extends View {
   }
 
   // The popup re-renders on every agent status change; rank again only when the
-  // folders, the query, the filter, or where the spaces are has changed.
+  // folders, the query, the filter, where the spaces are, or which agents are in them has changed.
   ranked() {
     const spaceList = spaces();
     const homeOf = (machine) => this.homeOf(machine);
     const folders = liveFolders(spaceList, panes(), homeOf);
+    const agentsBySpace = new Map();
+    const agentParts = [];
+    for (const a of agents()) {
+      if (!agentsBySpace.has(a.space)) agentsBySpace.set(a.space, []);
+      agentsBySpace.get(a.space).push(a);
+      agentParts.push([a.address, a.space, a.tab, a.tab_name, a.app ?? a.program.name, cleanTitle(a.title)].join("\u0001"));
+    }
     const where = spaceList.map((s) => [s.id, s.name, s.machine ?? "", ...folders.get(s.id)].join("\u0001")).join("\u0002");
-    const key = [this.version, this.query, this.scope === ALL ? "\u0003all" : (this.scope ?? ""), where].join("\u0004");
-    if (this.cache?.key !== key) this.cache = { key, rows: rankedRows(this.sources, spaceList, folders, this.query, this.scope, homeOf) };
+    const key = [this.version, this.query, this.scope === ALL ? "\u0003all" : (this.scope ?? ""), where, agentParts.join("\u0002")].join("\u0004");
+    if (this.cache?.key !== key) this.cache = { key, rows: rankedRows(this.sources, spaceList, folders, agentsBySpace, this.query, this.scope, homeOf) };
     return this.cache.rows;
   }
 
@@ -223,15 +260,23 @@ export default class Navigator extends View {
     this.done = true;
     this.close();
     const { row } = picked;
-    if (row.kind === "open" && !forceNew) run("space.select", { id: row.space.id });
+    if (row.kind === "agent" && !forceNew) run("agent.focus", { terminal: row.agent.address });
+    else if (row.kind === "open" && !forceNew) run("space.select", { id: row.space.id });
     else run("space.new", row.machine ? { folder: row.path, machine: row.machine } : { folder: row.path });
   }
 
-  closeSpace(picked) {
-    if (picked?.row.kind !== "open" || this.done) return;
+  // pane.close ends the agent without asking, so the navigator asks with a second ctrl-x.
+  closeRow(picked) {
+    const row = picked?.row;
+    if (!row || row.kind === "folder" || this.done) return;
+    if (row.kind === "agent" && this.armed !== row.agent.address) {
+      this.armed = row.agent.address;
+      return;
+    }
     this.done = true;
     this.close();
-    run("space.close", { id: picked.row.space.id });
+    if (row.kind === "agent") run("pane.close", { pane: row.agent.pane });
+    else run("space.close", { id: row.space.id });
   }
 
   move(step, count) {
@@ -248,7 +293,7 @@ export default class Navigator extends View {
   glyph(t, row) {
     const box = div().w(13).flex_none();
     if (row.kind === "folder") return box.text_color(t.dim).child("+");
-    const status = spaces().find((s) => s.id === row.space.id)?.status;
+    const status = row.kind === "agent" ? agents().find((a) => a.address === row.agent.address)?.status : spaces().find((s) => s.id === row.space.id)?.status;
     if (status === "working") return box.text_color(t.working).frames(SPIN, 90).child(SPIN[0]);
     return box.text_color(status ? t[status] : t.accent).child("●");
   }
@@ -275,10 +320,11 @@ export default class Navigator extends View {
     const states = this.machines.map((m) => [m, this.sources.get(m) ?? { state: "loading" }]);
     const loading = states.some(([, s]) => s.state === "loading");
     const errors = states.filter(([, s]) => s.state === "error");
+    const armed = selected?.row.kind === "agent" && selected.row.agent.address === this.armed ? selected : null;
 
     const rowView = (picked, i) => {
       const { row } = picked;
-      const open = row.kind === "open";
+      const open = row.kind !== "folder";
       return h_flex()
         .id(`nav-${start + i}`)
         .mx(4)
@@ -305,6 +351,7 @@ export default class Navigator extends View {
         .cursor_pointer()
         .on_click((_e, cx) => {
           this.scope = scope;
+          this.armed = null;
           this.at = 0;
           this.ranked();
           cx.notify();
@@ -329,6 +376,10 @@ export default class Navigator extends View {
       .text_size(13)
       .on_key_down((e, cx) => {
         const action = KEYS[e.keystroke];
+        if (e.keystroke !== "ctrl-x" && this.armed !== null) {
+          this.armed = null;
+          cx.notify();
+        }
         if (!action) return;
         action(this, selected, ranked.length);
         cx.stop_propagation();
@@ -371,7 +422,7 @@ export default class Navigator extends View {
               .gap(14)
               .child("↵ go to / new")
               .child("⌥↵ new space anyway")
-              .child("⌃X close space")
+              .child(armed ? div().text_color(t.accent).child(`⌃X again closes ${armed.row.agent.app} in ${armed.base}`) : "⌃X close")
               .child("esc close")
               .child(div().flex_1())
               .child(h_flex().gap(10).children(states.map(machineState))),

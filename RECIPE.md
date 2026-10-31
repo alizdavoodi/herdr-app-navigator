@@ -16,15 +16,17 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 	- The path in 11.5px `dim` text, with the machine's home shortened to `~`. This computer's home comes from `home()` even when its zoxide fails. It truncates at the end.
 	- A machine chip, only on rows from another machine.
 	- "go to" in `accent` on open rows, or "new" in `dim` on folder rows.
+	- A space with two or more agents shows one row per agent instead of its space row. The name is `space › tab N`, or `space › <tab name>` when the tab has a name. The glyph takes that agent's status. The agent's app and cleaned title replace the path. The row is semibold and shows "go to" like an open row.
 4. **Empty state.** "Loading…" while any machine is still loading, else "Nothing matches".
-5. **Footer.** A 1px `border` line on top, then 11px `dim` text. The left side lists the keys: "↵ go to / new", "⌥↵ new space anyway", "⌃X close space", and "esc close". The right side shows each machine's state: a braille spinner and its name while it loads, its name and folder count when ready, or "<name> unavailable" in `muted` on failure. If any machine failed, a second line in `muted` reads `<name>: <reason>` for each one. The reason is the first line of the error `exec` gave or of zoxide's stderr, else `zoxide exited <code>`.
+5. **Footer.** A 1px `border` line on top, then 11px `dim` text. The left side lists the keys: "↵ go to / new", "⌥↵ new space anyway", "⌃X close", and "esc close". While a `ctrl-x` is armed on the selected agent row, "⌃X close" reads "⌃X again closes <app> in <row>" in `accent`. The right side shows each machine's state: a braille spinner and its name while it loads, its name and folder count when ready, or "<name> unavailable" in `muted` on failure. If any machine failed, a second line in `muted` reads `<name>: <reason>` for each one. The reason is the first line of the error `exec` gave or of zoxide's stderr, else `zoxide exited <code>`.
 
 ## How it behaves
 
-- Typing filters and ranks the list and moves the selection to the top row. Navigator splits the query on whitespace, and every word has to match. A word scores 100 when it equals the row's name, 80 when the name starts with it, 60 when the name contains it, and 30 when its letters appear in order in the name. It scores 20 when the `~` path contains it, and 10 when the machine name ("this computer" for this one) contains it. A word that matches none of these drops the row. Matching ignores case.
-- The rank is the score sum times 10, plus 250 for an open space, plus `ln(frecency + 1) * 6`. With an empty query, open spaces come first, then folders by zoxide frecency.
+- Typing filters and ranks the list and moves the selection to the top row. Navigator splits the query on whitespace, and every word has to match. A word scores 100 when it equals the row's name, 80 when the name starts with it, 60 when the name contains it, and 30 when its letters appear in order in the name. It scores 20 when the `~` path contains it, and 10 when the machine name ("this computer" for this one) contains it. A word that matches none of these drops the row. Matching ignores case. An agent row's name is `space › tab`, and its path is the space's live `~` folders plus the agent's app and title.
+- The rank is the score sum times 10, plus 250 for an open space or agent row, plus `ln(frecency + 1) * 6`. With an empty query, open spaces come first, then folders by zoxide frecency.
 - A folder is open when a terminal in a space on the same machine has that exact live working directory. A space with no terminal counts as open in its own folder (its machine's home when the folder is empty). An open space whose folders zoxide does not list still gets its own row.
-- `enter` or a click on a row goes to the open space with `space.select`. On a folder row, it makes a space there with `space.new`. `alt-enter` always makes a new space. `ctrl-x` on an open row closes the popup and runs `space.close`, and the app asks to confirm. `ctrl-x` does nothing on a folder row.
+- `enter` or a click on a row goes to the open space with `space.select`. On an agent row, it goes to that agent with `agent.focus {terminal}`. On a folder row, it makes a space there with `space.new`. `alt-enter` always makes a new space. `ctrl-x` on an open row closes the popup and runs `space.close`, and the app asks to confirm. `ctrl-x` does nothing on a folder row.
+- `ctrl-x` on an agent row needs two presses in a row. The first arms it. Any other key, typing, or a chip click disarms it. The second closes the popup and runs `pane.close {pane}`. The navigator asks itself because `pane.close` ends the agent without asking.
 - `up` and `down` move the selection and wrap at the ends. The 12-row window follows the selection and keeps it in the middle where it can.
 - `tab` steps the machine filter through all, this computer, and each connected machine. Clicking a chip picks that filter.
 - `escape` closes the popup. Each action that leaves (go, new, close) closes the popup first.
@@ -33,10 +35,10 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 ## Built from
 
 - One mod, `mods/navigator/`, made of two files: `main.js` and `mod.json`. `mod.json` is `{ "place": "none", "title": "Navigator", "overlay": { "kind": "popup", "at": "top", "offset": 40, "width": 680, "height": 0.8 } }`. `keys.json` binds `"cmd-p": "mod.open:navigator"` in `global`.
-- `herdr` functions: `spaces()`, `panes()`, `hc`, `exec`, `run`, `theme()`, `props()`, `closeOverlay`, and `home()`.
+- `herdr` functions: `spaces()`, `panes()`, `agents()`, `hc`, `exec`, `run`, `theme()`, `props()`, `closeOverlay`, and `home()`.
 - Programs: `hc machine ls --json` once, keeping machines with `state == "connected"` and not `temporary`. On each machine, it runs `zoxide query -l -s` and `printenv HOME` through `exec(cmd, args, { on: machine })`. This computer uses `home()` instead of `printenv`.
-- Commands: `space.select {id}`, `space.new {folder, machine?}` (no `machine` for this computer), and `space.close {id}`.
-- Data: one state per machine (`loading`, `ready` with home and folders, or `error` with a reason). Every render derives the open-folder index from `spaces()` and `panes()`, and builds the ranked rows from those states, the query, and the machine filter. Keys go through a table from the `keystroke` string to an action.
+- Commands: `space.select {id}`, `space.new {folder, machine?}` (no `machine` for this computer), `space.close {id}`, `agent.focus {terminal}`, and `pane.close {pane}`.
+- Data: one state per machine (`loading`, `ready` with home and folders, or `error` with a reason). The open-folder index comes from `spaces()` and `panes()`. The ranked rows come from those states, the query, the machine filter, and `agents()`. The ranking is cached and recomputed only when machine data, the query, the filter, the spaces' folders, or the agents' identity and titles change. Keys go through a table from the `keystroke` string to an action.
 - Art: text glyphs only. The spinner cycles `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` with the native `.frames(SPIN, 90)`, never a timer.
 
 ## Watch out
@@ -57,5 +59,6 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 - Enter on a folder row makes a new space in that folder, on that row's machine.
 - `alt-enter` on an open row makes a second space in the same folder.
 - `ctrl-x` on an open row asks to close that space.
+- With a space holding two agents, one of them idle, the list shows two `space › tab` rows with their own glyphs. Enter goes to that agent's tab. `ctrl-x` once shows the prompt, and twice closes only that agent's pane.
 - With a remote machine connected, its folders appear with its chip. Typing the machine's name narrows to its rows, and `tab` cycles all, this computer, and the machine.
 - On a machine without zoxide, the footer names it with the reason, and its open spaces still show.
