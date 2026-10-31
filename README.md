@@ -6,11 +6,13 @@
 
 ## Install
 
-1. Copy the mod folder into your herdr-app home:
+1. The mod is two files, `main.js` and `mod.json`. Copy the mod folder into your herdr-app home:
 
 	```sh
 	cp -R mods/navigator ~/.config/herdr-app/mods/
 	```
+
+	Symlinking the two files works too, so home-manager and stow installs are fine. Link the files, not the folder, because herdr-app writes `jsconfig.json` and `gpui-kit.d.ts` into every mod folder.
 
 2. Merge `keys.json` into `~/.config/herdr-app/keys.json`. It binds `cmd-p` in the `global` section to `mod.open:navigator`. If `cmd-p` already does something for you (the shipped picker, for example), decide which one keeps it.
 3. Check that the mod loads:

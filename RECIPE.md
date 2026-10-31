@@ -9,15 +9,15 @@ A popup at the top of the window for jumping to a folder. You type a few letters
 The popup is 680px wide and up to 80% of the window tall. It sits 40px below the top edge on the theme's `popover` color, with 18px padding and 13px text. From top to bottom:
 
 1. **Machine chips.** One 18px-tall chip each for "all", "this computer", and every connected machine, with 10.5px text and 5px corners. The selected chip is `accent` with `accent_foreground` text. The others are `raised` with `muted` text. "tab switches machine" sits at the right in 11px `dim` text.
-2. **Search field.** It is 36px tall with 9px corners, a 1px `accent` border, and a `background` fill. It holds a 15px search icon, the input (placeholder "Folder, space or machine…"), and the count of matching rows in 11px `dim` text.
+2. **Search field.** It is 36px tall with 9px corners, a 1px `accent` border, and a `background` fill. It holds the input (placeholder "Folder, space or machine…") and the count of matching rows in 11px `dim` text.
 3. **Rows.** At most 12 rows show at a time, each 32px tall with 7px corners. The selected row has the `hover` background. Each row shows, from left to right:
-	- A glyph. A folder row has a 13px `dim` folder icon. An open-space row has a `●` in its agent status color (`working`, `blocked`, `done`, `idle`), or `accent` when no agent reports. A space with a working agent shows a 12px spinner in `working` instead.
+	- A glyph in a 13px box. A folder row has a `dim` `+`, since Enter makes a space there. An open-space row has a `●` in its agent status color (`working`, `blocked`, `done`, `idle`), or `accent` when no agent reports. A space with a working agent shows a braille spinner in `working` instead.
 	- The name, at most 220px wide, in `foreground`. It is the space name for an open row (semibold) and the last path segment for a folder row.
-	- The path in 11.5px `dim` text, with the machine's home shortened to `~`. It truncates at the end.
+	- The path in 11.5px `dim` text, with the machine's home shortened to `~`. This computer's home comes from `home()` even when its zoxide fails. It truncates at the end.
 	- A machine chip, only on rows from another machine.
 	- "go to" in `accent` on open rows, or "new" in `dim` on folder rows.
 4. **Empty state.** "Loading…" while any machine is still loading, else "Nothing matches".
-5. **Footer.** A 1px `border` line on top, then 11px `dim` text. The left side lists the keys: "↵ go to / new", "⌥↵ new space anyway", "⌃X close space", and "esc close". The right side shows each machine's state: a 10px spinner and its name while it loads, its name and folder count when ready, or "<name> unavailable" in `muted` on failure. If any machine failed, a second line in `muted` reads `<name>: <reason>` for each one. The reason is the first line of the error `exec` gave or of zoxide's stderr, else `zoxide exited <code>`.
+5. **Footer.** A 1px `border` line on top, then 11px `dim` text. The left side lists the keys: "↵ go to / new", "⌥↵ new space anyway", "⌃X close space", and "esc close". The right side shows each machine's state: a braille spinner and its name while it loads, its name and folder count when ready, or "<name> unavailable" in `muted` on failure. If any machine failed, a second line in `muted` reads `<name>: <reason>` for each one. The reason is the first line of the error `exec` gave or of zoxide's stderr, else `zoxide exited <code>`.
 
 ## How it behaves
 
@@ -32,12 +32,12 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 
 ## Built from
 
-- One mod, `mods/navigator/`. `mod.json` is `{ "place": "none", "title": "Navigator", "overlay": { "kind": "popup", "at": "top", "offset": 40, "width": 680, "height": 0.8 } }`. `keys.json` binds `"cmd-p": "mod.open:navigator"` in `global`.
+- One mod, `mods/navigator/`, made of two files: `main.js` and `mod.json`. `mod.json` is `{ "place": "none", "title": "Navigator", "overlay": { "kind": "popup", "at": "top", "offset": 40, "width": 680, "height": 0.8 } }`. `keys.json` binds `"cmd-p": "mod.open:navigator"` in `global`.
 - `herdr` functions: `spaces()`, `panes()`, `hc`, `exec`, `run`, `theme()`, `props()`, `closeOverlay`, and `home()`.
 - Programs: `hc machine ls --json` once, keeping machines with `state == "connected"` and not `temporary`. On each machine, it runs `zoxide query -l -s` and `printenv HOME` through `exec(cmd, args, { on: machine })`. This computer uses `home()` instead of `printenv`.
 - Commands: `space.select {id}`, `space.new {folder, machine?}` (no `machine` for this computer), and `space.close {id}`.
 - Data: one state per machine (`loading`, `ready` with home and folders, or `error` with a reason). Every render derives the open-folder index from `spaces()` and `panes()`, and builds the ranked rows from those states, the query, and the machine filter. Keys go through a table from the `keystroke` string to an action.
-- Art: three one-color SVGs drawn with `svg()` so they take the text color. `folder.svg` is a folder outline, `search.svg` a magnifier, and `spinner.svg` a ring with a 25% opacity track and a quarter arc, turned with `.spin(900)`.
+- Art: text glyphs only. The spinner cycles `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` with the native `.frames(SPIN, 90)`, never a timer.
 
 ## Watch out
 
@@ -46,7 +46,7 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 - Call `zoxide` by name. A hardcoded path breaks on other machines. Each machine's herdr-core needs zoxide on its own `PATH`.
 - `exec` rejects when the program cannot start and resolves with a nonzero `code` when it fails. Treat both as an error for that machine, and show the reason in the footer.
 - `enter` can reach both the key handler and the input's `submit`. The mod acts on the first one and ignores the rest, so it never makes two spaces.
-- The SVG paths are `mods/navigator/<icon>.svg`, relative to the herdr-app home. Renaming the folder means changing that prefix.
+- herdr-app draws nothing for an SVG reached through a symlink. home-manager and stow install every file as a symlink, so the mod draws text glyphs instead of `svg()` icons.
 - Selection is an index. It resets to the top when the query or the filter changes. A machine that answers late can reorder the list under the selection.
 - Machines come from one `hc machine ls` call when the popup opens. A machine that connects while the popup is open shows up the next time it opens.
 

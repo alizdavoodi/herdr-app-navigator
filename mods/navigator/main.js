@@ -2,11 +2,11 @@
 // folder of every connected machine plus every open space, ranked as one list.
 // Enter goes to the space already open in that folder, else makes one there.
 
-import { View, div, svg } from "gpui-kit";
+import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { spaces, panes, run, hc, exec, theme, props, closeOverlay, home } from "herdr";
 
-const ICONS = "mods/navigator";
+const SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const WINDOW = 12;
 const ALL = Symbol("all machines");
 
@@ -89,9 +89,11 @@ function spaceFolders(spaceList, paneList, homeOf) {
 }
 
 function rankedRows(sources, spaceList, paneList, query, scope) {
+  // Remote homes stay unknown until printenv answers; this computer's is always known.
   const homeOf = (machine) => {
     const source = sources.get(machine);
-    return source?.state === "ready" ? source.home : null;
+    if (source?.state === "ready") return source.home;
+    return machine === null ? home() : null;
   };
   const folders = spaceFolders(spaceList, paneList, homeOf);
   const openIndex = new Map();
@@ -217,10 +219,11 @@ export default class Navigator extends View {
   }
 
   glyph(t, row) {
-    if (row.kind === "folder") return svg(`${ICONS}/folder.svg`).size(13).flex_none().text_color(t.dim);
+    const box = div().w(13).flex_none();
+    if (row.kind === "folder") return box.text_color(t.dim).child("+");
     const status = row.space.status;
-    if (status === "working") return svg(`${ICONS}/spinner.svg`).size(12).flex_none().text_color(t.working).spin(900);
-    return div().w(13).flex_none().text_color(status ? t[status] : t.accent).child("●");
+    if (status === "working") return box.text_color(t.working).frames(SPIN, 90).child(SPIN[0]);
+    return box.text_color(status ? t[status] : t.accent).child("●");
   }
 
   chip(t, text, on) {
@@ -282,7 +285,7 @@ export default class Navigator extends View {
 
     const machineState = ([machine, source]) => {
       const el = h_flex().gap(4).items_center().flex_none();
-      if (source.state === "loading") return el.child(svg(`${ICONS}/spinner.svg`).size(10).text_color(t.dim).spin(900)).child(machineLabel(machine));
+      if (source.state === "loading") return el.child(div().frames(SPIN, 90).child(SPIN[0])).child(machineLabel(machine));
       if (source.state === "error") return el.text_color(t.muted).child(`${machineLabel(machine)} unavailable`);
       return el.child(`${machineLabel(machine)} ${source.folders.length}`);
     };
@@ -322,7 +325,6 @@ export default class Navigator extends View {
           .border_1()
           .border_color(t.accent)
           .bg(t.background)
-          .child(svg(`${ICONS}/search.svg`).size(15).text_color(t.dim))
           .child(Input.new(this.input).flex_1().h_full().text_size(12.8).text_color(t.foreground))
           .child(div().text_size(11).text_color(t.dim).child(`${ranked.length}`)),
       )
