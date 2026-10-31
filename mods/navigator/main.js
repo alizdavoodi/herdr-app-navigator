@@ -118,7 +118,7 @@ function rankedRows(sources, spaceList, paneList, query, scope) {
     if (!claimed.has(s.id)) rows.push({ kind: "open", space: s, machine: s.machine ?? null, path: folders.get(s.id)[0] ?? "", frecency: 0 });
   }
 
-  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const ranked = [];
   for (const row of rows) {
     if (scope !== ALL && row.machine !== scope) continue;
