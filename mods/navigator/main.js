@@ -29,10 +29,10 @@ function tokenScore(token, base, path, machine) {
   return -1;
 }
 
-function matchScore(tokens, base, path, machine) {
+function matchScore(tokens, baseLower, pathLower, machineLower) {
   let sum = 0;
   for (const token of tokens) {
-    const score = tokenScore(token, base.toLowerCase(), path.toLowerCase(), machine.toLowerCase());
+    const score = tokenScore(token, baseLower, pathLower, machineLower);
     if (score < 0) return -1;
     sum += score;
   }
@@ -46,11 +46,19 @@ function tilde(homeDir, path) {
   return path;
 }
 
-function parseZoxide(stdout) {
+// Derived once per load, not per render: herdr-app interrupts a render that runs too
+// long, and the popup re-renders on every agent status change.
+function folderRow(homeDir, path, frecency) {
+  const base = path.split("/").pop() || path;
+  const display = tilde(homeDir, path);
+  return { path, base, display, baseLower: base.toLowerCase(), displayLower: display.toLowerCase(), weight: Math.log(frecency + 1) * 6 };
+}
+
+function parseZoxide(stdout, homeDir) {
   const folders = [];
   for (const line of stdout.split("\n")) {
     const m = /^\s*(\d+(?:\.\d+)?)\s+(.+?)\s*$/.exec(line);
-    if (m) folders.push({ path: m[2], frecency: parseFloat(m[1]) });
+    if (m) folders.push(folderRow(homeDir, m[2], parseFloat(m[1])));
   }
   return folders;
 }
@@ -63,8 +71,8 @@ async function loadSource(machine) {
   if (zoxide.status === "rejected") return { state: "error", reason: firstLine(zoxide.reason?.message ?? String(zoxide.reason)) };
   const z = zoxide.value;
   if (z.code !== 0) return { state: "error", reason: firstLine(z.stderr) || `zoxide exited ${z.code}` };
-  const h = homeDir.status === "fulfilled" && homeDir.value.code === 0 ? homeDir.value.stdout.trim() : null;
-  return { state: "ready", home: h || null, folders: parseZoxide(z.stdout) };
+  const h = homeDir.status === "fulfilled" && homeDir.value.code === 0 ? homeDir.value.stdout.trim() || null : null;
+  return { state: "ready", home: h, folders: parseZoxide(z.stdout, h) };
 }
 
 function liveFolders(spaceList, paneList, homeOf) {
@@ -82,13 +90,7 @@ function liveFolders(spaceList, paneList, homeOf) {
   return folders;
 }
 
-function rankedRows(sources, spaceList, paneList, query, scope) {
-  const homeOf = (machine) => {
-    const source = sources.get(machine);
-    if (source?.state === "ready") return source.home;
-    return machine === null ? home() : null;
-  };
-  const folders = liveFolders(spaceList, paneList, homeOf);
+function rankedRows(sources, spaceList, folders, query, scope, homeOf) {
   const openIndex = new Map();
   for (const s of spaceList) {
     for (const path of folders.get(s.id)) {
@@ -97,30 +99,36 @@ function rankedRows(sources, spaceList, paneList, query, scope) {
     }
   }
 
-  const rows = [];
+  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const machineLower = new Map();
+  const ranked = [];
+  const consider = (row, base, baseLower, display, displayLower, weight) => {
+    if (scope !== ALL && row.machine !== scope) return;
+    if (!machineLower.has(row.machine)) machineLower.set(row.machine, machineLabel(row.machine).toLowerCase());
+    const score = matchScore(tokens, baseLower, displayLower, machineLower.get(row.machine));
+    if (score < 0) return;
+    ranked.push({ row, base, display, rank: score * 10 + (row.kind === "open" ? 250 : 0) + weight });
+  };
+
   const claimed = new Set();
   for (const [machine, source] of sources) {
     if (source.state !== "ready") continue;
-    for (const { path, frecency } of source.folders) {
-      const space = openIndex.get(openKey(machine, path));
-      if (space) claimed.add(space.id);
-      rows.push(space ? { kind: "open", space, machine, path, frecency } : { kind: "folder", machine, path, frecency });
+    for (const f of source.folders) {
+      const space = openIndex.get(openKey(machine, f.path));
+      if (!space) {
+        consider({ kind: "folder", machine, path: f.path }, f.base, f.baseLower, f.display, f.displayLower, f.weight);
+        continue;
+      }
+      claimed.add(space.id);
+      consider({ kind: "open", space, machine, path: f.path }, space.name, space.name.toLowerCase(), f.display, f.displayLower, f.weight);
     }
   }
   for (const s of spaceList) {
-    if (!claimed.has(s.id)) rows.push({ kind: "open", space: s, machine: s.machine ?? null, path: folders.get(s.id)[0] ?? "", frecency: 0 });
-  }
-
-  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const ranked = [];
-  for (const row of rows) {
-    if (scope !== ALL && row.machine !== scope) continue;
-    const base = row.kind === "open" ? row.space.name : row.path.split("/").pop() || row.path;
-    const display = tilde(homeOf(row.machine), row.path);
-    const score = matchScore(tokens, base, display, machineLabel(row.machine));
-    if (score < 0) continue;
-    const rank = score * 10 + (row.kind === "open" ? 250 : 0) + Math.log(row.frecency + 1) * 6;
-    ranked.push({ row, base, display, rank });
+    if (claimed.has(s.id)) continue;
+    const machine = s.machine ?? null;
+    const path = folders.get(s.id)[0] ?? "";
+    const display = tilde(homeOf(machine), path);
+    consider({ kind: "open", space: s, machine, path }, s.name, s.name.toLowerCase(), display, display.toLowerCase(), 0);
   }
   return ranked.sort((a, b) => b.rank - a.rank);
 }
@@ -143,10 +151,13 @@ export default class Navigator extends View {
     this.done = false;
     this.machines = [null];
     this.sources = new Map([[null, { state: "loading" }]]);
+    this.version = 0;
+    this.cache = null;
     this.input = InputState.new({ placeholder: "Folder, space or machine…" });
     this.input.on("change", (_e, cx) => {
       this.query = this.input.value();
       this.at = 0;
+      this.ranked();
       cx.notify();
     });
     this.input.on("submit", () => this.go(this.ranked()[this.at], false));
@@ -155,7 +166,7 @@ export default class Navigator extends View {
     this.handle = cx.focus_handle();
 
     cx.spawn(async (cx) => {
-      this.sources.set(null, await loadSource(null));
+      this.setSource(null, await loadSource(null));
       cx.notify();
     });
     cx.spawn(async (cx) => {
@@ -165,19 +176,41 @@ export default class Navigator extends View {
         if (r.code === 0) names = (JSON.parse(r.stdout).machines ?? []).filter((m) => m.state === "connected" && !m.temporary).map((m) => m.name);
       } catch {}
       this.machines = [null, ...names];
-      for (const name of names) this.sources.set(name, { state: "loading" });
+      for (const name of names) this.setSource(name, { state: "loading" });
       cx.notify();
       await Promise.all(
         names.map(async (name) => {
-          this.sources.set(name, await loadSource(name));
+          this.setSource(name, await loadSource(name));
           cx.notify();
         }),
       );
     });
   }
 
+  // Rank here, in the task or handler that changed the data, so render() finds the
+  // rows cached: herdr-app interrupted the render that did this first ranking.
+  setSource(machine, source) {
+    this.sources.set(machine, source);
+    this.version++;
+    this.ranked();
+  }
+
+  homeOf(machine) {
+    const source = this.sources.get(machine);
+    if (source?.state === "ready") return source.home;
+    return machine === null ? home() : null;
+  }
+
+  // The popup re-renders on every agent status change; rank again only when the
+  // folders, the query, the filter, or where the spaces are has changed.
   ranked() {
-    return rankedRows(this.sources, spaces(), panes(), this.query, this.scope);
+    const spaceList = spaces();
+    const homeOf = (machine) => this.homeOf(machine);
+    const folders = liveFolders(spaceList, panes(), homeOf);
+    const where = spaceList.map((s) => [s.id, s.name, s.machine ?? "", ...folders.get(s.id)].join("\u0001")).join("\u0002");
+    const key = [this.version, this.query, this.scope === ALL ? "\u0003all" : (this.scope ?? ""), where].join("\u0004");
+    if (this.cache?.key !== key) this.cache = { key, rows: rankedRows(this.sources, spaceList, folders, this.query, this.scope, homeOf) };
+    return this.cache.rows;
   }
 
   close() {
@@ -209,12 +242,13 @@ export default class Navigator extends View {
     const scopes = [ALL, ...this.machines];
     this.scope = scopes[(scopes.indexOf(this.scope) + 1) % scopes.length];
     this.at = 0;
+    this.ranked();
   }
 
   glyph(t, row) {
     const box = div().w(13).flex_none();
     if (row.kind === "folder") return box.text_color(t.dim).child("+");
-    const status = row.space.status;
+    const status = spaces().find((s) => s.id === row.space.id)?.status;
     if (status === "working") return box.text_color(t.working).frames(SPIN, 90).child(SPIN[0]);
     return box.text_color(status ? t[status] : t.accent).child("●");
   }
@@ -272,6 +306,7 @@ export default class Navigator extends View {
         .on_click((_e, cx) => {
           this.scope = scope;
           this.at = 0;
+          this.ranked();
           cx.notify();
         })
         .child(this.chip(t, scope === ALL ? "all" : machineLabel(scope), scope === this.scope));
