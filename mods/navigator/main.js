@@ -1,7 +1,3 @@
-// Jump to a folder or space on any connected machine. Rows are every zoxide
-// folder of every connected machine plus every open space, ranked as one list.
-// Enter goes to the space already open in that folder, else makes one there.
-
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { spaces, panes, run, hc, exec, theme, props, closeOverlay, home } from "herdr";
@@ -71,9 +67,7 @@ async function loadSource(machine) {
   return { state: "ready", home: h || null, folders: parseZoxide(z.stdout) };
 }
 
-// Where each space is now: its terminals' live folders. A space's own folder
-// is only where new terminals start, so it counts only when the space has no terminal.
-function spaceFolders(spaceList, paneList, homeOf) {
+function liveFolders(spaceList, paneList, homeOf) {
   const spaceOfTab = new Map();
   for (const s of spaceList) for (const t of s.tabs) spaceOfTab.set(t.id, s.id);
   const folders = new Map(spaceList.map((s) => [s.id, []]));
@@ -82,20 +76,19 @@ function spaceFolders(spaceList, paneList, homeOf) {
     if (id && !folders.get(id).includes(p.cwd)) folders.get(id).push(p.cwd);
   }
   for (const s of spaceList) {
-    const fallback = s.folder || homeOf(s.machine ?? null);
-    if (!folders.get(s.id).length && fallback) folders.get(s.id).push(fallback);
+    const startFolder = s.folder || homeOf(s.machine ?? null);
+    if (!folders.get(s.id).length && startFolder) folders.get(s.id).push(startFolder);
   }
   return folders;
 }
 
 function rankedRows(sources, spaceList, paneList, query, scope) {
-  // Remote homes stay unknown until printenv answers; this computer's is always known.
   const homeOf = (machine) => {
     const source = sources.get(machine);
     if (source?.state === "ready") return source.home;
     return machine === null ? home() : null;
   };
-  const folders = spaceFolders(spaceList, paneList, homeOf);
+  const folders = liveFolders(spaceList, paneList, homeOf);
   const openIndex = new Map();
   for (const s of spaceList) {
     for (const path of folders.get(s.id)) {

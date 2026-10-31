@@ -1,3 +1,2 @@
-# herdr-app writes these into every mod folder on start
 mods/*/jsconfig.json
 mods/*/gpui-kit.d.ts
