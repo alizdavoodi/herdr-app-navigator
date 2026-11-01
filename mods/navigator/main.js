@@ -99,6 +99,9 @@ function liveFolders(spaceList, paneList, homeOf) {
   return folders;
 }
 
+const STATUS_ORDER = { working: 0, blocked: 1, done: 2, idle: 3 };
+const tierOf = (row) => (row.kind === "folder" ? 5 : STATUS_ORDER[row.kind === "agent" ? row.agent.status : row.space.status] ?? 4);
+
 function rankedRows(sources, spaceList, folders, agentsBySpace, query, scope, homeOf) {
   const openIndex = new Map();
   for (const s of spaceList) {
@@ -116,7 +119,7 @@ function rankedRows(sources, spaceList, folders, agentsBySpace, query, scope, ho
     if (!machineLower.has(row.machine)) machineLower.set(row.machine, machineLabel(row.machine).toLowerCase());
     const score = matchScore(tokens, baseLower, displayLower, machineLower.get(row.machine));
     if (score < 0) return;
-    ranked.push({ row, base, display, rank: score * 10 + (row.kind === "folder" ? 0 : 250) + weight });
+    ranked.push({ row, base, display, rank: score * 10 + (row.kind === "folder" ? 0 : 250), tier: tierOf(row), weight });
   };
   const agentRowsDone = new Set();
   const considerSpace = (space, machine, path, display, displayLower, weight) => {
@@ -133,7 +136,7 @@ function rankedRows(sources, spaceList, folders, agentsBySpace, query, scope, ho
       const base = `${space.name} › ${label}`;
       const text = `${a.app ?? a.program.name}  ${title}`;
       const where = `${folders.get(space.id).map((p) => tilde(homeOf(machine), p)).join(" ")} ${text}`.toLowerCase();
-      const agent = { address: a.address, pane: a.pane, app: a.app ?? a.program.name };
+      const agent = { address: a.address, pane: a.pane, app: a.app ?? a.program.name, status: a.status };
       consider({ kind: "agent", space, machine, path, agent }, base, base.toLowerCase(), text, where, weight);
     }
   };
@@ -158,7 +161,7 @@ function rankedRows(sources, spaceList, folders, agentsBySpace, query, scope, ho
     const display = tilde(homeOf(machine), path);
     considerSpace(s, machine, path, display, display.toLowerCase(), 0);
   }
-  ranked.sort((a, b) => b.rank - a.rank);
+  ranked.sort((a, b) => b.rank - a.rank || a.tier - b.tier || b.weight - a.weight);
   ranked.push({ row: { kind: "new", machine: scope === ALL ? null : scope }, base: "New space…", display: "~" });
   return ranked;
 }
@@ -234,8 +237,6 @@ export default class Navigator extends View {
     return machine === null ? home() : null;
   }
 
-  // The popup re-renders on every agent status change; rank again only when the
-  // folders, the query, the filter, where the spaces are, or which agents are in them has changed.
   ranked() {
     const spaceList = spaces();
     const homeOf = (machine) => this.homeOf(machine);
@@ -245,10 +246,10 @@ export default class Navigator extends View {
     for (const a of agents()) {
       if (!agentsBySpace.has(a.space)) agentsBySpace.set(a.space, []);
       agentsBySpace.get(a.space).push(a);
-      agentParts.push([a.address, a.space, a.tab, a.tab_name, a.app ?? a.program.name, cleanTitle(a.title)].join("\u0001"));
+      agentParts.push([a.address, a.space, a.tab, a.tab_name, a.app ?? a.program.name, cleanTitle(a.title), a.status].join("\u0001"));
     }
-    const where = spaceList.map((s) => [s.id, s.name, s.machine ?? "", ...folders.get(s.id)].join("\u0001")).join("\u0002");
-    const key = [this.version, this.query, this.scope === ALL ? "\u0003all" : (this.scope ?? ""), where, agentParts.join("\u0002")].join("\u0004");
+    const spaceParts = spaceList.map((s) => [s.id, s.name, s.machine ?? "", s.status ?? "", ...folders.get(s.id)].join("\u0001")).join("\u0002");
+    const key = [this.version, this.query, this.scope === ALL ? "\u0003all" : (this.scope ?? ""), spaceParts, agentParts.join("\u0002")].join("\u0004");
     if (this.cache?.key !== key) this.cache = { key, rows: rankedRows(this.sources, spaceList, folders, agentsBySpace, this.query, this.scope, homeOf) };
     return this.cache.rows;
   }

@@ -22,7 +22,7 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 ## How it behaves
 
 - Typing filters and ranks the list and moves the selection to the top row. Navigator splits the query on whitespace, and every word has to match. A word scores 100 when it equals the row's name, 80 when the name starts with it, 60 when the name contains it, and 30 when its letters appear in order in the name. It scores 20 when the `~` path contains it, and 10 when the machine name ("this computer" for this one) contains it. A word that matches none of these drops the row. Matching ignores case. An agent row's name is `space › tab`, and its path is the space's live `~` folders plus the agent's app and title.
-- The rank is the score sum times 10, plus 250 for an open space or agent row, plus `ln(frecency + 1) * 6`. With an empty query, open spaces come first, then folders by zoxide frecency.
+- Rows sort by three keys in turn. First relevance, the score sum times 10, plus 250 for an open space or agent row. Then status, in the order working, blocked, done, idle, then no agent. Then `ln(frecency + 1) * 6`. With an empty query, open spaces and agents come first in status order, then folders by zoxide frecency.
 - A folder is open when a terminal in a space on the same machine has that exact live working directory. A space with no terminal counts as open in its own folder (its machine's home when the folder is empty). An open space whose folders zoxide does not list still gets its own row.
 - `enter` or a click on a row goes to the open space with `space.select`. On an agent row, it goes to that agent with `agent.focus {terminal}`. On a folder row, it makes a space there with `space.new`. `alt-enter` always makes a new space. `ctrl-x` on an open row closes the popup and runs `space.close`, and the app asks to confirm. `ctrl-x` does nothing on a folder row or on the "New space…" row.
 - `enter`, `alt-enter`, or a click on "New space…" closes the popup and opens the shipped `prompt` mod as a 420×210 dialog titled "new space". Its hint reads "Starts in ~", or "Starts in ~ on <machine>" when the filter is a remote machine. Submitting a name runs `space.new` with that name, in this computer's `~` (`folder: home()`), or in the filtered machine's home (`machine` and no folder).
@@ -40,7 +40,7 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 - Mods: the shipped `prompt` mod asks for the new space's name. Navigator passes it `{ title, hint, command: { name: "space.new", args } }`, and `prompt` runs that command with `name` added.
 - Programs: `hc machine ls --json` once, keeping machines with `state == "connected"` and not `temporary`. On each machine, it runs `zoxide query -l -s` and `printenv HOME` through `exec(cmd, args, { on: machine })`. This computer uses `home()` instead of `printenv`.
 - Commands: `space.select {id}`, `space.new {folder, machine?}` (no `machine` for this computer), `space.new {folder: home()}` and `space.new {machine}` through `prompt` for "New space…", `space.close {id}`, `agent.focus {terminal}`, and `pane.close {pane}`.
-- Data: one state per machine (`loading`, `ready` with home and folders, or `error` with a reason). The open-folder index comes from `spaces()` and `panes()`. The ranked rows come from those states, the query, the machine filter, and `agents()`. The ranking is cached and recomputed only when machine data, the query, the filter, the spaces' folders, or the agents' identity and titles change. Every key but `tab` goes through a table from the `keystroke` string to an action.
+- Data: one state per machine (`loading`, `ready` with home and folders, or `error` with a reason). The open-folder index comes from `spaces()` and `panes()`. The ranked rows come from those states, the query, the machine filter, and `agents()`. The ranking is cached and recomputed only when machine data, the query, the filter, the spaces' folders, the agents' identity and titles, or the agent and space statuses change. Every key but `tab` goes through a table from the `keystroke` string to an action.
 - Art: text glyphs only. The spinner cycles `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` with the native `.frames(SPIN, 90)`, never a timer.
 
 ## Watch out
@@ -53,13 +53,14 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 - herdr-app draws nothing for an SVG reached through a symlink. home-manager and stow install every file as a symlink, so the mod draws text glyphs instead of `svg()` icons.
 - Paint the selected row with `selected`, not `hover`. A theme may set `hover` equal to `popover` (both Rosé Pine themes do), and the selection would vanish against the popup.
 - `tab` is a GPUI focus-next binding, and it runs before `on_key_down`, so a key handler never sees it and the input loses focus. Navigator binds `tab` in its own `Navigator` key context and handles it with `on_action`. The app keymap has no unbind and `init` runs on every open, so Navigator binds once per app run behind a `globalThis` flag.
-- Selection is an index. It resets to the top when the query or the filter changes. A machine that answers late can reorder the list under the selection.
+- Selection is an index. It resets to the top when the query or the filter changes. A machine that answers late can reorder the list under the selection, and so can a status change.
 - Machines come from one `hc machine ls` call when the popup opens. A machine that connects while the popup is open shows up the next time it opens.
 
 ## Done when
 
 - `herdr-app check mods/navigator` passes.
 - With a space whose terminal sits in a zoxide folder, typing part of that folder's name puts an open row ("go to") at the top. Enter switches to that space.
+- With an empty query, a working agent's row sits above a blocked one, which sits above done, idle, then a space with no agent.
 - Enter on a folder row makes a new space in that folder, on that row's machine.
 - `alt-enter` on an open row makes a second space in the same folder.
 - Picking "New space…" asks for a name and makes a space with that name in `~`, or in the filtered machine's home when the filter is a remote machine. `ctrl-x` on it does nothing. A query that matches nothing reads `0` and still shows "New space…".
