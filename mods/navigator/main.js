@@ -1,6 +1,6 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { spaces, panes, agents, run, hc, exec, theme, props, closeOverlay, home } from "herdr";
+import { spaces, panes, agents, run, hc, exec, theme, props, openOverlay, closeOverlay, home } from "herdr";
 
 const SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const WINDOW = 12;
@@ -158,7 +158,9 @@ function rankedRows(sources, spaceList, folders, agentsBySpace, query, scope, ho
     const display = tilde(homeOf(machine), path);
     considerSpace(s, machine, path, display, display.toLowerCase(), 0);
   }
-  return ranked.sort((a, b) => b.rank - a.rank);
+  ranked.sort((a, b) => b.rank - a.rank);
+  ranked.push({ row: { kind: "new", machine: scope === ALL ? null : scope }, base: "New space…", display: "~" });
+  return ranked;
 }
 
 const KEYS = {
@@ -260,7 +262,20 @@ export default class Navigator extends View {
     this.done = true;
     this.close();
     const { row } = picked;
-    if (row.kind === "agent" && !forceNew) run("agent.focus", { terminal: row.agent.address });
+    if (row.kind === "new") {
+      const machine = row.machine;
+      openOverlay({
+        mod: "prompt",
+        kind: "dialog",
+        width: 420,
+        height: 210,
+        props: {
+          title: "new space",
+          hint: machine ? `Starts in ~ on ${machine}` : "Starts in ~",
+          command: { name: "space.new", args: machine ? { machine } : { folder: home() } },
+        },
+      });
+    } else if (row.kind === "agent" && !forceNew) run("agent.focus", { terminal: row.agent.address });
     else if (row.kind === "open" && !forceNew) run("space.select", { id: row.space.id });
     else run("space.new", row.machine ? { folder: row.path, machine: row.machine } : { folder: row.path });
   }
@@ -268,7 +283,7 @@ export default class Navigator extends View {
   // pane.close ends the agent without asking, so the navigator asks with a second ctrl-x.
   closeRow(picked) {
     const row = picked?.row;
-    if (!row || row.kind === "folder" || this.done) return;
+    if (!row || row.kind === "folder" || row.kind === "new" || this.done) return;
     if (row.kind === "agent" && this.armed !== row.agent.address) {
       this.armed = row.agent.address;
       return;
@@ -292,7 +307,7 @@ export default class Navigator extends View {
 
   glyph(t, row) {
     const box = div().w(13).flex_none();
-    if (row.kind === "folder") return box.text_color(t.dim).child("+");
+    if (row.kind === "folder" || row.kind === "new") return box.text_color(t.dim).child("+");
     const status = row.kind === "agent" ? agents().find((a) => a.address === row.agent.address)?.status : spaces().find((s) => s.id === row.space.id)?.status;
     if (status === "working") return box.text_color(t.working).frames(SPIN, 90).child(SPIN[0]);
     return box.text_color(status ? t[status] : t.accent).child("●");
@@ -318,13 +333,12 @@ export default class Navigator extends View {
     const start = Math.max(0, Math.min(this.at - Math.floor(WINDOW / 2), ranked.length - WINDOW));
     const shown = ranked.slice(start, start + WINDOW);
     const states = this.machines.map((m) => [m, this.sources.get(m) ?? { state: "loading" }]);
-    const loading = states.some(([, s]) => s.state === "loading");
     const errors = states.filter(([, s]) => s.state === "error");
     const armed = selected?.row.kind === "agent" && selected.row.agent.address === this.armed ? selected : null;
 
     const rowView = (picked, i) => {
       const { row } = picked;
-      const open = row.kind !== "folder";
+      const open = row.kind === "open" || row.kind === "agent";
       return h_flex()
         .id(`nav-${start + i}`)
         .mx(4)
@@ -405,10 +419,9 @@ export default class Navigator extends View {
           .border_color(t.accent)
           .bg(t.background)
           .child(Input.new(this.input).flex_1().h_full().text_size(12.8).text_color(t.foreground))
-          .child(div().text_size(11).text_color(t.dim).child(`${ranked.length}`)),
+          .child(div().text_size(11).text_color(t.dim).child(`${ranked.length - 1}`)),
       )
       .child(v_flex().min_h(0).children(shown.map(rowView)))
-      .when(!ranked.length, (el) => el.child(div().px(14).py(10).text_color(t.dim).child(loading ? "Loading…" : "Nothing matches")))
       .child(
         v_flex()
           .pt(6)
