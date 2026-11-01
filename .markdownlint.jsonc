@@ -1,0 +1,4 @@
+{
+  // Paragraphs and table rows stay on one line each, so GitHub wraps them, not the source.
+  "MD013": false
+}
