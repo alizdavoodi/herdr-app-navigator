@@ -41,7 +41,7 @@ The mod runs programs. It calls `hc machine ls --json` to find machines, and `zo
 | `tab` | Switches the machine filter: all, this computer, then each connected machine. |
 | `escape` | Closes Navigator. |
 
-A space with two or more agents shows one row per agent instead of one row for the space, labelled `space › tab` with that agent's status and title, so an idle agent next to busy ones stays visible. Open spaces and agents list working first, then waiting for you, done, idle, and spaces with no agent.
+A space with two or more agents shows one row per agent instead of one row for the space, labelled `space › tab` with that agent's status and title, so an idle agent next to busy ones stays visible. A space with one agent keeps its single row but shows that agent's app and title in place of the path, or just the app when the title is empty or only names the app. Open spaces and agents list working first, then waiting for you, done, idle, and spaces with no agent.
 
 ## How remote machines work
 

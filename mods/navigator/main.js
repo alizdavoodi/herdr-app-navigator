@@ -18,6 +18,11 @@ const cleanTitle = (title) =>
     .replace(/^(?:(?:[^\p{L}\p{N}\s]+|[^\x00-\x7F])(?:\s+|$))+/u, "")
     .replace(/\s+/g, " ")
     .trim();
+const agentDetail = (a) => {
+  const app = a.app ?? a.program.name;
+  const task = cleanTitle(a.title);
+  return task && task !== app && task !== a.program.name ? `${app}  ${task}` : app;
+};
 
 function isSubsequence(needle, hay) {
   let at = 0;
@@ -121,23 +126,28 @@ function rankedRows(sources, spaceList, folders, agentsBySpace, query, scope, ho
     if (score < 0) return;
     ranked.push({ row, base, display, rank: score * 10 + (row.kind === "folder" ? 0 : 250), tier: tierOf(row), weight });
   };
-  const agentRowsDone = new Set();
+  const spaceRowsDone = new Set();
   const considerSpace = (space, machine, path, display, displayLower, weight) => {
     const spaceAgents = agentsBySpace.get(space.id) ?? [];
-    if (spaceAgents.length < 2) {
+    if (!spaceAgents.length) {
       consider({ kind: "open", space, machine, path }, space.name, space.name.toLowerCase(), display, displayLower, weight);
       return;
     }
-    if (agentRowsDone.has(space.id)) return;
-    agentRowsDone.add(space.id);
+    if (spaceRowsDone.has(space.id)) return;
+    spaceRowsDone.add(space.id);
+    const where = folders.get(space.id).map((p) => tilde(homeOf(machine), p)).join(" ");
+    if (spaceAgents.length === 1) {
+      const detail = agentDetail(spaceAgents[0]);
+      consider({ kind: "open", space, machine, path }, space.name, space.name.toLowerCase(), detail, `${where} ${detail}`.toLowerCase(), weight);
+      return;
+    }
     for (const a of spaceAgents) {
       const label = tabLabel(a.tab_name);
       const title = cleanTitle(a.title);
       const base = `${space.name} › ${label}`;
       const text = `${a.app ?? a.program.name}  ${title}`;
-      const where = `${folders.get(space.id).map((p) => tilde(homeOf(machine), p)).join(" ")} ${text}`.toLowerCase();
       const agent = { address: a.address, pane: a.pane, app: a.app ?? a.program.name, status: a.status };
-      consider({ kind: "agent", space, machine, path, agent }, base, base.toLowerCase(), text, where, weight);
+      consider({ kind: "agent", space, machine, path, agent }, base, base.toLowerCase(), text, `${where} ${text}`.toLowerCase(), weight);
     }
   };
 
