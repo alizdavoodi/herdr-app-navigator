@@ -1,6 +1,6 @@
 # herdr-app-navigator
 
-![The Navigator popup lists open spaces, agents, and folders from this computer and from a machine named devbox.](preview.png)
+![Navigator lists open spaces, agents, and folders from this computer and a machine named devbox. Typing "api" filters the list, and tab switches the machine filter.](preview.gif)
 
 [herdr-app](https://herdr.dev) is the Herdr desktop app, which arranges the terminals and coding agents that herdr-core (`hc`) runs into spaces and tabs.
 
@@ -102,7 +102,7 @@ It changes herdr-app only through these commands: `space.select`, `space.new`, `
 
 ## Rebuild the mod or the preview
 
-[RECIPE.md](RECIPE.md) describes what the mod shows, how it behaves, and what a fresh build tends to get wrong, so you can build it again from an empty folder. `scripts/preview.sh` opens a herdr-app window with demo data and saves `preview.png` from it. Run `scripts/preview.sh` with no arguments to see its commands.
+[RECIPE.md](RECIPE.md) describes what the mod shows, how it behaves, and what a fresh build tends to get wrong, so you can build it again from an empty folder. `scripts/preview.sh` opens a herdr-app window with demo data and saves `preview.png` and `preview.gif` from it. On macOS, it types the GIF's keystrokes itself. Run `scripts/preview.sh` with no arguments to see its commands.
 
 ## Credit
 

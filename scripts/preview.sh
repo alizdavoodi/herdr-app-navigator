@@ -3,7 +3,7 @@
 #
 #   scripts/preview.sh up     make the demo home and open its window
 #   scripts/preview.sh png    open Navigator there and save preview.png
-#   scripts/preview.sh gif    record preview.gif while you type in Navigator (8 s, or $SECONDS_TO_RECORD)
+#   scripts/preview.sh gif    record preview.gif (10 s, or $SECONDS_TO_RECORD); on macOS it types the demo itself
 #   scripts/preview.sh down   close the window, stop its cores, delete the demo home
 #
 # The window has its own herdr-app home, herdr-core sessions, HOME, and zoxide database, so
@@ -57,25 +57,26 @@ open_navigator() {
 	sleep 3
 }
 
-# crop <frame.png> <out.png> [height]: cut the popup out of a window frame, at 1x zoom-scaled size.
+# crop <frame.png> <out.png> [height]: cut the popup out of a window frame, scaled to 748 px wide.
+# With a height, pad below the popup to that height in the color just above it, so the window
+# behind a shrinking popup stays out of the picture. Prints the output height.
 crop() {
 	frame_w=$(magick identify -format %w "$1")
 	scale=$(awk "BEGIN { print $frame_w / $win_w }")
 	popup_w=$(awk "BEGIN { printf \"%d\", 680 * $zoom * $scale + 0.5 }")
 	x=$(awk "BEGIN { printf \"%d\", ($frame_w - $popup_w) / 2 }")
 	top=$(awk "BEGIN { printf \"%d\", 40 * $zoom * $scale }")
-	h=${3:-}
-	if [ -z "$h" ]; then
-		# Walk down the popup's left padding until the color changes: that row is its bottom border.
-		col=$((x + 15))
-		bottom=$(magick "$1" -crop "1x100000+$col+$((top + 2))" +repage -depth 8 txt:- |
-			awk 'NR > 1 { split($0, at, /[,:]/); match($0, /#[0-9A-Fa-f]+/); hex = substr($0, RSTART, RLENGTH) }
-				NR == 2 { first = hex } NR > 2 && hex != first { print at[2]; exit }')
-		h=$((bottom + 4))
-	fi
-	magick "$1" -crop "${popup_w}x$h+$x+$((top - 1))" +repage "$2"
+	# Walk down the popup's left padding until the color changes: that row is its bottom border.
+	col=$((x + 15))
+	bottom=$(magick "$1" -crop "1x100000+$col+$((top + 2))" +repage -depth 8 txt:- |
+		awk 'NR > 1 { split($0, at, /[,:]/); match($0, /#[0-9A-Fa-f]+/); hex = substr($0, RSTART, RLENGTH) }
+			NR == 2 { first = hex } NR > 2 && hex != first { print at[2]; exit }')
+	magick "$1" -crop "${popup_w}x$((bottom + 4))+$x+$((top - 1))" +repage "$2"
 	[ "$popup_w" -eq 748 ] || magick "$2" -resize 748x "$2"
-	echo "$h"
+	if [ -n "${3:-}" ]; then
+		magick "$2" -background "$(magick "$2" -format '%[pixel:p{0,0}]' info:)" -gravity north -extent "748x$3" "$2"
+	fi
+	magick identify -format %h "$2"
 }
 
 up() {
@@ -172,14 +173,63 @@ png() {
 	echo "$out"
 }
 
+# drive: types the demo into Navigator. Every key first checks that the demo window is still in
+# front and stops otherwise, so no keystroke reaches another app.
+drive() {
+	osascript - "$(cat "$demo/app.pid")" <<-'EOF'
+		on guard(demoPid)
+			tell application "System Events"
+				if unix id of (first process whose frontmost is true) is not demoPid then error "the demo window lost focus"
+			end tell
+		end guard
+		on press(demoPid, k)
+			my guard(demoPid)
+			tell application "System Events" to key code k
+		end press
+		on typeText(demoPid, t)
+			repeat with c in characters of t
+				my guard(demoPid)
+				tell application "System Events" to keystroke (c as text)
+				delay 0.3
+			end repeat
+		end typeText
+		on run argv
+			set p to (item 1 of argv) as integer
+			delay 1.5
+			my typeText(p, "api")
+			delay 1.2
+			my press(p, 125) -- down
+			delay 0.8
+			my press(p, 125)
+			delay 0.8
+			repeat 3 times
+				my press(p, 51) -- delete
+				delay 0.15
+			end repeat
+			delay 0.8
+			my press(p, 48) -- tab: this computer
+			delay 1.2
+			my press(p, 48) -- tab: devbox
+			delay 1.2
+			my press(p, 48) -- tab: all machines
+		end run
+	EOF
+}
+
 gif() {
 	out=${1:-$repo/preview.gif}
-	seconds=${SECONDS_TO_RECORD:-8}
+	seconds=${SECONDS_TO_RECORD:-10}
 	rm -rf "$demo/frames"
 	mkdir -p "$demo/frames"
 	front
 	open_navigator
-	echo "Recording for $seconds s. Type in the Navigator window now."
+	if [ "$(uname)" = Darwin ]; then
+		echo "Recording for $seconds s. Don't touch the keyboard: the script types the demo."
+		drive &
+		driver=$!
+	else
+		echo "Recording for $seconds s. Type in the Navigator window now."
+	fi
 	start=$(date +%s)
 	n=0
 	while [ $(($(date +%s) - start)) -lt "$seconds" ]; do
@@ -187,6 +237,10 @@ gif() {
 		local_env herdr-app shot "$(printf '%s/frames/%05d.png' "$demo" "$n")" >/dev/null
 		sleep 0.05
 	done
+	if [ -n "${driver:-}" ] && ! wait "$driver"; then
+		echo "Typing stopped early, so the recording is incomplete. Run '$0 gif' again." >&2
+		exit 1
+	fi
 	fps=$(awk "BEGIN { f = $n / $seconds; print (f < 1 ? 1 : f) }")
 	h=$(crop "$demo/frames/00001.png" "$demo/frames/00001.png")
 	for f in "$demo"/frames/*.png; do
