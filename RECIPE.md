@@ -10,7 +10,7 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 
 1. **Machine chips.** One 18px-tall chip each for "all", "this computer", and every connected machine, with 10.5px text and 5px corners. The selected chip is `accent` with `accent_foreground` text. The others are `raised` with `muted` text. "tab switches machine" sits at the right in 11px `dim` text.
 2. **Search field.** It is 36px tall with 9px corners, a 1px `accent` border, and a `background` fill. It holds the input (placeholder "Folder, space or machine…") and the count of matching rows in 11px `dim` text.
-3. **Rows.** At most 12 rows show at a time, each 32px tall with 7px corners. The selected row has the `hover` background. The last row is always "New space…", whatever the query. Each row shows, from left to right:
+3. **Rows.** At most 12 rows show at a time, each 32px tall with 7px corners. The selected row has the `selected` background. A row under the pointer has the `hover` background. The last row is always "New space…", whatever the query. Each row shows, from left to right:
 	- A glyph in a 13px box. A folder row and the "New space…" row have a `dim` `+`, since Enter makes a space there. An open-space row has a `●` in its agent status color (`working`, `blocked`, `done`, `idle`), or `accent` when no agent reports. A space with a working agent shows a braille spinner in `working` instead.
 	- The name, at most 220px wide, in `foreground`. It is the space name for an open row (semibold), the last path segment for a folder row, and "New space…" for the last row.
 	- The path in 11.5px `dim` text, with the machine's home shortened to `~`. This computer's home comes from `home()` even when its zoxide fails. It truncates at the end.
@@ -36,10 +36,11 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 
 - One mod, `mods/navigator/`, made of two files: `main.js` and `mod.json`. `mod.json` is `{ "place": "none", "title": "Navigator", "overlay": { "kind": "popup", "at": "top", "offset": 40, "width": 680, "height": 0.8 } }`. `keys.json` binds `"cmd-p": "mod.open:navigator"` in `global`.
 - `herdr` functions: `spaces()`, `panes()`, `agents()`, `hc`, `exec`, `run`, `theme()`, `props()`, `openOverlay`, `closeOverlay`, and `home()`.
+- gpui functions for `tab`: `cx.bind_keys` binds `tab` to the `navigator.next_scope` action in the `Navigator` context, the root element declares `key_context("Navigator")`, and `on_action("navigator.next_scope", …)` steps the machine filter.
 - Mods: the shipped `prompt` mod asks for the new space's name. Navigator passes it `{ title, hint, command: { name: "space.new", args } }`, and `prompt` runs that command with `name` added.
 - Programs: `hc machine ls --json` once, keeping machines with `state == "connected"` and not `temporary`. On each machine, it runs `zoxide query -l -s` and `printenv HOME` through `exec(cmd, args, { on: machine })`. This computer uses `home()` instead of `printenv`.
 - Commands: `space.select {id}`, `space.new {folder, machine?}` (no `machine` for this computer), `space.new {folder: home()}` and `space.new {machine}` through `prompt` for "New space…", `space.close {id}`, `agent.focus {terminal}`, and `pane.close {pane}`.
-- Data: one state per machine (`loading`, `ready` with home and folders, or `error` with a reason). The open-folder index comes from `spaces()` and `panes()`. The ranked rows come from those states, the query, the machine filter, and `agents()`. The ranking is cached and recomputed only when machine data, the query, the filter, the spaces' folders, or the agents' identity and titles change. Keys go through a table from the `keystroke` string to an action.
+- Data: one state per machine (`loading`, `ready` with home and folders, or `error` with a reason). The open-folder index comes from `spaces()` and `panes()`. The ranked rows come from those states, the query, the machine filter, and `agents()`. The ranking is cached and recomputed only when machine data, the query, the filter, the spaces' folders, or the agents' identity and titles change. Every key but `tab` goes through a table from the `keystroke` string to an action.
 - Art: text glyphs only. The spinner cycles `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` with the native `.frames(SPIN, 90)`, never a timer.
 
 ## Watch out
@@ -50,6 +51,8 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 - `exec` rejects when the program cannot start and resolves with a nonzero `code` when it fails. Treat both as an error for that machine, and show the reason in the footer.
 - `enter` can reach both the key handler and the input's `submit`. The mod acts on the first one and ignores the rest, so it never makes two spaces.
 - herdr-app draws nothing for an SVG reached through a symlink. home-manager and stow install every file as a symlink, so the mod draws text glyphs instead of `svg()` icons.
+- Paint the selected row with `selected`, not `hover`. A theme may set `hover` equal to `popover` (both Rosé Pine themes do), and the selection would vanish against the popup.
+- `tab` is a GPUI focus-next binding, and it runs before `on_key_down`, so a key handler never sees it and the input loses focus. Navigator binds `tab` in its own `Navigator` key context and handles it with `on_action`. The app keymap has no unbind and `init` runs on every open, so Navigator binds once per app run behind a `globalThis` flag.
 - Selection is an index. It resets to the top when the query or the filter changes. A machine that answers late can reorder the list under the selection.
 - Machines come from one `hc machine ls` call when the popup opens. A machine that connects while the popup is open shows up the next time it opens.
 

@@ -170,7 +170,6 @@ const KEYS = {
   "ctrl-x": (nav, picked) => nav.closeRow(picked),
   up: (nav, _picked, count) => nav.move(-1, count),
   down: (nav, _picked, count) => nav.move(1, count),
-  tab: (nav) => nav.nextScope(),
 };
 
 export default class Navigator extends View {
@@ -193,6 +192,8 @@ export default class Navigator extends View {
       cx.notify();
     });
     this.input.on("submit", () => this.go(this.ranked()[this.at], false));
+    // The app keymap has no unbind and init runs on every open, so bind once per app run.
+    globalThis.__navigatorTabBound ||= cx.bind_keys([{ keystroke: "tab", action: "navigator.next_scope", context: "Navigator" }]);
     this.input.focus();
     cx.timer.after(600, () => this.input.focus());
     this.handle = cx.focus_handle();
@@ -349,7 +350,7 @@ export default class Navigator extends View {
         .gap(10)
         .items_center()
         .cursor_pointer()
-        .when(picked === selected, (el) => el.bg(t.hover))
+        .when(picked === selected, (el) => el.bg(t.selected))
         .hover((s) => s.bg(t.hover))
         .on_click(() => this.go(picked, false))
         .child(this.glyph(t, row))
@@ -388,6 +389,12 @@ export default class Navigator extends View {
       .gap(10)
       .bg(t.popover)
       .text_size(13)
+      .key_context("Navigator")
+      .on_action("navigator.next_scope", (_e, cx) => {
+        this.armed = null;
+        this.nextScope();
+        cx.notify();
+      })
       .on_key_down((e, cx) => {
         const action = KEYS[e.keystroke];
         if (e.keystroke !== "ctrl-x" && this.armed !== null) {
