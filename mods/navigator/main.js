@@ -104,6 +104,7 @@ function liveFolders(spaceList, paneList, homeOf) {
   return folders;
 }
 
+const agentOf = (a) => ({ address: a.address, pane: a.pane, app: a.app ?? a.program.name, status: a.status });
 const STATUS_ORDER = { working: 0, blocked: 1, done: 2, idle: 3 };
 const tierOf = (row) => (row.kind === "folder" ? 5 : STATUS_ORDER[row.kind === "agent" ? row.agent.status : row.space.status] ?? 4);
 const groupOf = (row, agentsBySpace) => {
@@ -143,7 +144,7 @@ function rankedRows(sources, spaceList, folders, agentsBySpace, query, scope, ho
     const where = folders.get(space.id).map((p) => tilde(homeOf(machine), p)).join(" ");
     if (spaceAgents.length === 1) {
       const detail = agentDetail(spaceAgents[0]);
-      consider({ kind: "open", space, machine, path }, space.name, space.name.toLowerCase(), detail, `${where} ${detail}`.toLowerCase(), weight);
+      consider({ kind: "open", space, machine, path, agent: agentOf(spaceAgents[0]) }, space.name, space.name.toLowerCase(), detail, `${where} ${detail}`.toLowerCase(), weight);
       return;
     }
     for (const a of spaceAgents) {
@@ -151,8 +152,7 @@ function rankedRows(sources, spaceList, folders, agentsBySpace, query, scope, ho
       const title = cleanTitle(a.title);
       const base = `${space.name} › ${label}`;
       const text = `${a.app ?? a.program.name}  ${title}`;
-      const agent = { address: a.address, pane: a.pane, app: a.app ?? a.program.name, status: a.status };
-      consider({ kind: "agent", space, machine, path, agent }, base, base.toLowerCase(), text, `${where} ${text}`.toLowerCase(), weight);
+      consider({ kind: "agent", space, machine, path, agent: agentOf(a) }, base, base.toLowerCase(), text, `${where} ${text}`.toLowerCase(), weight);
     }
   };
 
@@ -292,7 +292,7 @@ export default class Navigator extends View {
           command: { name: "space.new", args: machine ? { machine } : { folder: home() } },
         },
       });
-    } else if (row.kind === "agent" && !forceNew) run("agent.focus", { terminal: row.agent.address });
+    } else if (row.agent && !forceNew) run("agent.focus", { terminal: row.agent.address });
     else if (row.kind === "open" && !forceNew) run("space.select", { id: row.space.id });
     else run("space.new", row.machine ? { folder: row.path, machine: row.machine } : { folder: row.path });
   }
