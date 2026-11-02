@@ -1,10 +1,12 @@
 # herdr-app-navigator
 
+Access all your projects and agents across all your machines from a single place.
+
 ![In herdr-app, Navigator lists open spaces, agents, and zoxide folders. Typing "dotf" leaves the dotfiles folder, and clicking its "new" label makes a dotfiles space in the sidebar with a terminal in ~/code/dotfiles.](preview.gif)
 
-[herdr-app](https://herdr.dev) is the Herdr desktop app, which arranges the terminals and coding agents that herdr-core (`hc`) runs into spaces and tabs.
+Navigator is a mod for [herdr-app](https://herdr.dev), the desktop app that arranges the terminals and coding agents herdr-core (`hc`) runs into spaces and tabs. Press `cmd-p` and one ranked list shows every open space, agent, and [zoxide](https://github.com/ajeetdsouza/zoxide) folder on this computer and on every machine connected to herdr-core. Type a few letters of a project or machine name, then press enter to switch to the space already working in that folder, jump to an agent, or start a new space there on the right machine.
 
-Navigator is a herdr-app mod. It opens a popup with one list of your open spaces, your agents, and your [zoxide](https://github.com/ajeetdsouza/zoxide) folders, from this computer and from every machine connected to herdr-core. Pick a folder to go to the space that already has a terminal there, or to make a new space in it.
+Working across machines usually means remembering which host holds a project and opening it by hand. Navigator searches all of them at once: folder names, paths, agent titles, and machine names. When a space already has a terminal in the folder, enter goes there instead of making a second one. Agent rows carry live status, so the list also shows which agents are working, blocked, done, or idle.
 
 ## Requirements
 
