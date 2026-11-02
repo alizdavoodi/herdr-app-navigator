@@ -28,6 +28,7 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 - `enter`, `alt-enter`, or a click on "New space…" closes the popup and opens the shipped `prompt` mod as a 420×210 dialog titled "new space". Its hint reads "Starts in ~", or `Starts in ~ on <machine>` when the filter is a remote machine. Submitting a name runs `space.new` with that name, in this computer's `~` (`folder: home()`), or in the filtered machine's home (`machine` and no folder).
 - `ctrl-x` on an agent row needs two presses in a row. The first arms it. Any other key, typing, or a chip click disarms it. The second closes the popup and runs `pane.close {pane}`. The navigator asks itself because `pane.close` ends the agent without asking.
 - `up` and `down` move the selection and wrap at the ends. The 12-row window follows the selection and keeps it in the middle where it can.
+- `ctrl-w` deletes the last word of the query and re-ranks. With an empty query it does nothing.
 - `tab` steps the machine filter through all, this computer, and each connected machine. Clicking a chip picks that filter.
 - `escape` closes the popup. Each action that leaves (go, new, close) closes the popup first.
 - Open spaces show the moment the popup opens. This computer's folders and each remote machine's folders appear as each one answers. A slow machine never holds up the others.
@@ -55,6 +56,7 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 - Paint the selected row with `selected`, not `hover`. A theme may set `hover` equal to `popover` (both Rosé Pine themes do), and the selection would vanish against the popup.
 - `tab` is a GPUI focus-next binding, and it runs before `on_key_down`, so a key handler never sees it and the input loses focus. Navigator binds `tab` in its own `Navigator` key context and handles it with `on_action`. The app keymap has no unbind and `init` runs on every open, so Navigator binds once per app run behind a `globalThis` flag.
 - Selection is an index. It resets to the top when the query or the filter changes. A machine that answers late can reorder the list under the selection, and so can a status change.
+- `ctrl-w` deletes the query's last word, not the word before a moved caret: `InputState` exposes no caret position, and `set_value` puts the caret back at the end. `set_value` also emits no change event, so `deleteWord` updates the query and ranking itself.
 - Machines come from one `hc machine ls` call when the popup opens. A machine that connects while the popup is open shows up the next time it opens.
 
 ## Done when
@@ -66,6 +68,7 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 - `alt-enter` on an open row makes a second space in the same folder.
 - Picking "New space…" asks for a name and makes a space with that name in `~`, or in the filtered machine's home when the filter is a remote machine. `ctrl-x` on it does nothing. A query that matches nothing reads `0` and still shows "New space…".
 - `ctrl-x` on an open row asks to close that space.
+- In the search field, `ctrl-w` after `code api` leaves `code `, after one word leaves the field empty, and with an empty field does nothing.
 - With a space holding two agents, one of them idle, the list shows two `space › tab` rows with their own glyphs. Enter goes to that agent's tab. `ctrl-x` once shows the prompt, and twice closes only that agent's pane.
 - With a space holding one agent whose title names a task, its row shows `app  task` instead of the path, and typing a word of its folder still finds it. With an idle Claude Code, whose title is only its name, the row shows `claude-code`.
 - With a space holding several tabs and one agent, select an empty tab, then switch to another space. Enter on that space's row opens the agent's tab.

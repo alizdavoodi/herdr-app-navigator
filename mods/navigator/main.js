@@ -186,6 +186,7 @@ const KEYS = {
   enter: (nav, picked) => nav.go(picked, false),
   "alt-enter": (nav, picked) => nav.go(picked, true),
   "ctrl-x": (nav, picked) => nav.closeRow(picked),
+  "ctrl-w": (nav) => nav.deleteWord(),
   up: (nav, _picked, count) => nav.move(-1, count),
   down: (nav, _picked, count) => nav.move(1, count),
 };
@@ -309,6 +310,18 @@ export default class Navigator extends View {
     this.close();
     if (row.kind === "agent") run("pane.close", { pane: row.agent.pane });
     else run("space.close", { id: row.space.id });
+  }
+
+  // shortcut: InputState has no caret getter, so ctrl-w deletes the query's last word
+  // rather than the word before a moved caret; upgrade when it exposes a selection.
+  deleteWord() {
+    const current = this.input.value();
+    if (!/\S/.test(current)) return;
+    const next = current.trimEnd().replace(/\S+$/, "");
+    this.input.set_value(next);
+    this.query = next;
+    this.at = 0;
+    this.ranked();
   }
 
   move(step, count) {

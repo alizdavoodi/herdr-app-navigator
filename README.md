@@ -53,6 +53,7 @@ The command prints `check passed:` followed by the mod's path. Press `cmd-p` in 
 | --- | --- |
 | `cmd-p` | Opens Navigator. |
 | Typing | Filters the list and selects the top row. |
+| `ctrl-w` | Deletes the last word of the query. |
 | `up`, `down` | Moves the selection. The selection wraps at both ends. |
 | `enter` or click | Goes to the selected space or agent, or makes a new space in the selected folder. |
 | `alt-enter` | Makes a new space in the selected row's folder, even when a space is already open there. |
@@ -61,6 +62,8 @@ The command prints `check passed:` followed by the mod's path. Press `cmd-p` in 
 | `escape` | Closes Navigator. |
 
 The first `ctrl-x` on an agent row changes the footer to `⌃X again closes <app> in <row>`. Any other key cancels it.
+
+`ctrl-w` always deletes from the end of the query, even after the arrow keys move the caret, because the search field does not report where the caret is.
 
 ## What the list shows
 
