@@ -67,7 +67,7 @@ The first `ctrl-x` on an agent row changes the footer to `⌃X again closes <app
 - A row with a dot or a spinner is an open space or an agent. A row with `+` is a zoxide folder with no open space.
 - With an empty query, open spaces and agents come first, in the order working, blocked, done, idle, and then spaces with no agent. Folders follow, sorted by their zoxide score.
 - When you type, rows that carry an agent come first, then other open spaces, then folders. Within each of those, the better match comes first.
-- A space with one agent shows the agent's app and title in place of its path. It shows the app alone when the title is empty or repeats the app's name.
+- A space with one agent shows the agent's app and title in place of its path. It shows the app alone when the title is empty or repeats the app's name. Enter opens the tab that holds that agent.
 - A space with two or more agents shows one row per agent, named `space › tab N`, or `space › <tab name>` when the tab has a name.
 - A row from another machine carries a chip with that machine's name.
 - The last row is always **New space…**. Picking it asks for a name and makes a space in `~` on this computer. When the filter is another machine, the space starts in that machine's home folder.
