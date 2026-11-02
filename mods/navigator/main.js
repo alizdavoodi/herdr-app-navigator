@@ -106,6 +106,11 @@ function liveFolders(spaceList, paneList, homeOf) {
 
 const STATUS_ORDER = { working: 0, blocked: 1, done: 2, idle: 3 };
 const tierOf = (row) => (row.kind === "folder" ? 5 : STATUS_ORDER[row.kind === "agent" ? row.agent.status : row.space.status] ?? 4);
+const groupOf = (row, agentsBySpace) => {
+  if (row.kind === "folder") return 2;
+  const agentRow = row.kind === "agent" || (agentsBySpace.get(row.space.id)?.length ?? 0) > 0;
+  return agentRow ? 0 : 1;
+};
 
 function rankedRows(sources, spaceList, folders, agentsBySpace, query, scope, homeOf) {
   const openIndex = new Map();
@@ -124,7 +129,7 @@ function rankedRows(sources, spaceList, folders, agentsBySpace, query, scope, ho
     if (!machineLower.has(row.machine)) machineLower.set(row.machine, machineLabel(row.machine).toLowerCase());
     const score = matchScore(tokens, baseLower, displayLower, machineLower.get(row.machine));
     if (score < 0) return;
-    ranked.push({ row, base, display, rank: score * 10 + (row.kind === "folder" ? 0 : 250), tier: tierOf(row), weight });
+    ranked.push({ row, base, display, group: tokens.length ? groupOf(row, agentsBySpace) : 0, rank: score * 10, tier: tierOf(row), weight });
   };
   const spaceRowsDone = new Set();
   const considerSpace = (space, machine, path, display, displayLower, weight) => {
@@ -171,7 +176,7 @@ function rankedRows(sources, spaceList, folders, agentsBySpace, query, scope, ho
     const display = tilde(homeOf(machine), path);
     considerSpace(s, machine, path, display, display.toLowerCase(), 0);
   }
-  ranked.sort((a, b) => b.rank - a.rank || a.tier - b.tier || b.weight - a.weight);
+  ranked.sort((a, b) => a.group - b.group || b.rank - a.rank || a.tier - b.tier || b.weight - a.weight);
   ranked.push({ row: { kind: "new", machine: scope === ALL ? null : scope }, base: "New space…", display: "~" });
   return ranked;
 }
