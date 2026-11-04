@@ -17,7 +17,13 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
    - A machine chip, only on rows from another machine. The "New space…" row shows the filtered machine's chip when the filter is a remote machine.
    - "go to" in `accent` on open rows, or "new" in `dim` on folder rows and the "New space…" row.
    - A space with two or more agents shows one row per agent instead of its space row. The name is `space › tab N`, or `space › <tab name>` when the tab has a name. The glyph takes that agent's status. The agent's app and cleaned title replace the path. The row is semibold and shows "go to" like an open row.
-4. **Footer.** A 1px `border` line on top, then 11px `dim` text. The left side lists the keys: "↵ go to / new", "⌥↵ new space anyway", "⌃X close", and "esc close". While a `ctrl-x` is armed on the selected agent row, "⌃X close" reads `⌃X again closes <app> in <row>` in `accent`. The right side shows each machine's state: a braille spinner and its name while it loads, its name and folder count when ready, or `<name> unavailable` in `muted` on failure. If any machine failed, a second line in `muted` reads `<name>: <reason>` for each one. The reason is the first line of the error `exec` gave or of zoxide's stderr, else `zoxide exited <code>`.
+4. **Footer.** A 1px `border` line on top, then 11px `dim` text. The left side lists the keys: "↵ go to / new", "⌘↵ agent", "⌥↵ new space", "⌃X close", and "esc close". While a `ctrl-x` is armed on the selected agent row, "⌃X close" reads `⌃X again closes <app> in <row>` in `accent`. In the agent step the keys read "↵ launch", "↑↓ agent", "⌫ back", and "esc close". The right side shows each machine's state: a braille spinner and its name while it loads, its name and folder count when ready, or `<name> unavailable` in `muted` on failure. If any machine failed, a second line in `muted` reads `<name>: <reason>` for each one. The reason is the first line of the error `exec` gave or of zoxide's stderr, else `zoxide exited <code>`.
+
+The agent step replaces the search field and the rows while it is open:
+
+1. **Target line.** 11.5px `dim` text reading `Launch in <space name>`. It uses the space's name even on a `space › tab` row. A remote row adds ` on <machine>`. A folder row names the folder's last segment and adds ` (new space)`.
+2. **Message field.** Styled like the search field, with the placeholder "First message (optional)…" and no count. It is empty and focused each time the step opens.
+3. **Agent rows.** One 32px row per agent, styled like the list rows: the agent's name in semibold `foreground`, its `run` joined with spaces in 11.5px `dim`, and "new tab" (space rows) or "new space" (folder rows) in 11px `accent` at the right. An agent whose `installed` is `false` shows its name in `dim` and "not installed" in `muted`. While the row's machine has not answered, one `dim` row reads "Asking <machine> which agents it has…". When it answered with an error, one `dim` row reads "No agents found on <machine>".
 
 ## How it behaves
 
@@ -30,18 +36,24 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 - `up` and `down` move the selection and wrap at the ends. The 12-row window follows the selection and keeps it in the middle where it can.
 - `ctrl-w` deletes the last word of the query and re-ranks. With an empty query it does nothing.
 - `tab` steps the machine filter through all, this computer, and each connected machine. Clicking a chip picks that filter.
-- `escape` closes the popup. Each action that leaves (go, new, close) closes the popup first.
-- Open spaces show the moment the popup opens. This computer's folders and each remote machine's folders appear as each one answers. A slow machine never holds up the others.
+- `escape` closes the popup. Each action that leaves (go, new, close, launch) closes the popup first.
+- Open spaces show the moment the popup opens. This computer's folders and each remote machine's folders appear as each one answers. A slow machine never holds up the others. Each machine's agent list loads alongside its folders.
+- `cmd-enter` on a space row, an agent row, or a folder row opens the agent step without switching. On "New space…" it does nothing, and with the step open it does nothing.
+- In the step, `up` and `down` move over the agents and wrap. `enter`, the message field's submit, or a click starts the selected agent, unless it is not installed. `backspace` on an empty message field closes the step and focuses the search field with the query as it was. With text in the field, `backspace` deletes as usual. `escape` closes the popup. The list keys (`alt-enter`, `ctrl-x`, `ctrl-w`) do nothing in the step.
+- Starting an agent on a row with a space runs `tab.new {space, name, argv, task?}`. The name is the agent's key, or `<key> 2`, `<key> 3`, and so on when that space already has a tab with the name. On a folder row it runs `space.new {folder, argv, task?, machine?}`. `task` is the trimmed first message and is left out when empty.
 
 ## Built from
 
 - One mod, `mods/navigator/`, made of two files: `main.js` and `mod.json`. `mod.json` is `{ "place": "none", "title": "Navigator", "overlay": { "kind": "popup", "at": "top", "offset": 40, "width": 680, "height": 0.8 } }`. `keys.json` binds `"cmd-p": "mod.open:navigator"` in `global`.
-- `herdr` functions: `spaces()`, `panes()`, `agents()`, `hc`, `exec`, `run`, `theme()`, `props()`, `openOverlay`, `closeOverlay`, and `home()`.
+- `herdr` functions: `spaces()`, `panes()`, `agents()`, `hc`, `exec`, `run`, `theme()`, `props()`, `openOverlay`, `closeOverlay`, `home()`, and `knownAgents({ on })`.
 - gpui functions for `tab`: `cx.bind_keys` binds `tab` to the `navigator.next_scope` action in the `Navigator` context, the root element declares `key_context("Navigator")`, and `on_action("navigator.next_scope", …)` steps the machine filter.
 - Mods: the shipped `prompt` mod asks for the new space's name. Navigator passes it `{ title, hint, command: { name: "space.new", args } }`, and `prompt` runs that command with `name` added.
-- Programs: `hc machine ls --json` once, keeping machines with `state == "connected"` and not `temporary`. On each machine, it runs `zoxide query -l -s` and `printenv HOME` through `exec(cmd, args, { on: machine })`. This computer uses `home()` instead of `printenv`.
-- Commands: `space.select {id}`, `space.new {folder, machine?}` (no `machine` for this computer), `space.new {folder: home()}` and `space.new {machine}` through `prompt` for "New space…", `space.close {id}`, `agent.focus {terminal}`, and `pane.close {pane}`.
-- Data: one state per machine (`loading`, `ready` with home and folders, or `error` with a reason). The open-folder index comes from `spaces()` and `panes()`. The ranked rows come from those states, the query, the machine filter, and `agents()`. The ranking is cached and recomputed only when machine data, the query, the filter, the spaces' folders, the agents' identity and titles, or the agent and space statuses change. Every key but `tab` goes through a table from the `keystroke` string to an action.
+- Programs: `hc machine ls --json` once, keeping machines with `state == "connected"` and not `temporary`. On each machine, it runs `zoxide query -l -s` and `printenv HOME` through `exec(cmd, args, { on: machine })`, and `knownAgents({ on: machine })` in the same task. This computer uses `home()` instead of `printenv`.
+- Commands: `space.select {id}`, `space.new {folder, machine?}` (no `machine` for this computer), `space.new {folder: home()}` and `space.new {machine}` through `prompt` for "New space…", `space.close {id}`, `agent.focus {terminal}`, `pane.close {pane}`, and for the agent step `tab.new {space, name, argv, task?}` and `space.new {folder, argv, task?, machine?}`.
+- Agent argv: `["sh", "-c", '"$@"; [ $? -eq 0 ] && hc kill "$HC_TERMINAL_ID"', "agent", ...agent.run]`.
+- Data: one state per machine (`loading`, `ready` with home and folders, or `error` with a reason). The open-folder index comes from `spaces()` and `panes()`. The ranked rows come from those states, the query, the machine filter, and `agents()`. The ranking is cached and recomputed only when machine data, the query, the filter, the spaces' folders, the agents' identity and titles, or the agent and space statuses change. Every key but `tab` goes through a table from the `keystroke` string to an action, one table for the list and one for the step.
+- Agents: `known` maps each machine (null for this computer) to its agents, `{ key, name, run, installed }`. A missing machine is still loading. `LAUNCHABLE = ["claude", "codex", "pi", "omp"]` filters `knownAgents` and keeps its order. When `omp` is absent, `{ key: "omp", name: "omp", run: ["omp"], installed: null }` goes last. When `knownAgents` rejects, the machine gets an empty list.
+- Step: `step` is `null` in the list view, or `{ picked, at }` with the ranked row the step opened from and the selected agent index.
 - Art: text glyphs only. The spinner cycles `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` with the native `.frames(SPIN, 90)`, never a timer.
 
 ## Watch out
@@ -58,6 +70,11 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 - Selection is an index. It resets to the top when the query or the filter changes. A machine that answers late can reorder the list under the selection, and so can a status change.
 - `ctrl-w` deletes the query's last word, not the word before a moved caret: `InputState` exposes no caret position, and `set_value` puts the caret back at the end. `set_value` also emits no change event, so `deleteWord` updates the query and ranking itself.
 - Machines come from one `hc machine ls` call when the popup opens. A machine that connects while the popup is open shows up the next time it opens.
+- The search `InputState` fires `submit` for `cmd-enter` too, with `event.secondary` set. Route a secondary submit to the step, or `cmd-enter` switches spaces. The `cmd-enter` key entry stays as well, and opening the step is a no-op when it is already open, so whichever fires first wins.
+- herdr runs `argv` inside the person's interactive shell, which outlives the agent. Without the `sh -c … hc kill` wrapper, quitting the agent leaves a shell in the tab.
+- herdr's built-in program table lacks `omp`, so `knownAgents` lists it only when a `programs.json` entry adds it. `omp` still runs from `argv` and reports as `app: "omp"`, so Navigator adds it with `installed: null` when it is missing.
+- When the agent's tab is its space's only tab, `hc kill` closes the whole space without asking.
+- herdr closes a popup on Esc before the mod sees the key, so `escape` in the step cannot go back. The step goes back with `backspace` on an empty message field, and `escape` closes the popup. A step action returns `false` to let a key through, as `backspace` does when the field has text.
 
 ## Done when
 
@@ -74,3 +91,9 @@ The popup is 680px wide and up to 80% of the window tall. It sits 40px below the
 - With a space holding several tabs and one agent, select an empty tab, then switch to another space. Enter on that space's row opens the agent's tab.
 - With a remote machine connected, its folders appear with its chip. Typing the machine's name narrows to its rows, and `tab` cycles all, this computer, and the machine.
 - On a machine without zoxide, the footer names it with the reason, and its open spaces still show.
+- `cmd-enter` on a space row opens the agent step and does not switch spaces.
+- Picking `claude` in the step with a first message adds a tab named `claude` to that space, and Claude receives the message.
+- Launching `claude` again in the same space makes a tab named `claude 2`.
+- Quitting an agent closes its tab. An agent that exits with an error keeps its tab and output.
+- `backspace` on an empty message field in the step returns to the list with the query intact.
+- `escape` in the step closes the popup.

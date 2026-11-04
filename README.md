@@ -56,6 +56,7 @@ The command prints `check passed:` followed by the mod's path. Press `cmd-p` in 
 | `ctrl-w` | Deletes the last word of the query. |
 | `up`, `down` | Moves the selection. The selection wraps at both ends. |
 | `enter` or click | Goes to the selected space or agent, or makes a new space in the selected folder. |
+| `cmd-enter` | Opens the agent step for the selected space, agent, or folder row, without switching. See [Start an agent](#start-an-agent). On **New space…**, it does nothing. |
 | `alt-enter` | Makes a new space in the selected row's folder, even when a space is already open there. |
 | `ctrl-x` | Closes the selected space, and herdr-app asks you to confirm. On an agent row, press it twice to close that agent's pane. On a folder row or on **New space…**, it does nothing. |
 | `tab` | Switches the machine filter to all machines, this computer, and then each connected machine. Clicking a chip at the top picks a filter. |
@@ -77,6 +78,25 @@ The first `ctrl-x` on an agent row changes the footer to `⌃X again closes <app
 - The number in the search field counts the matching rows, without **New space…**.
 
 Each word you type must match a row for the row to stay. A word matches when the row's name contains it, when its letters appear in order in the name, when the path contains it, or when the machine name contains it. For a space with agents, the path also includes each agent's app and title. This computer's machine name is "this computer". Matching ignores case.
+
+## Start an agent
+
+`cmd-enter` on a row opens the agent step inside the same popup. The top line reads `Launch in <space>`, with ` on <machine>` for a row from another machine. On a folder row it reads `Launch in <folder> (new space)`. Below it is a field for an optional first message, and below that one row per agent: `claude`, `codex`, `pi`, and `omp`. Each agent row shows the command it runs and where it opens. An agent that the machine does not have shows "not installed" and cannot be picked.
+
+| Key | Action |
+| --- | --- |
+| `up`, `down` | Moves the selection over the agents. The selection wraps at both ends. |
+| `enter` or click | Starts the selected agent and closes Navigator. |
+| `backspace` | With the message field empty, goes back to the list with your query as you left it. Otherwise it deletes as usual. |
+| `escape` | Closes Navigator. |
+
+On a space row, the agent starts in a new tab of that space. On a folder row, it starts in a new space in that folder, on the row's machine. Whatever you type in the message field becomes the agent's first message. Leave it empty to start the agent with no message.
+
+The new tab is named after the agent, for example `claude`. If the space already has a tab with that name, the new one is `claude 2`, then `claude 3`, and so on.
+
+When the agent exits with code 0, its tab closes. When it exits with any other code, the tab stays open with the agent's output. If the agent's tab is the only tab in its space, the space closes with it.
+
+The list of agents comes from herdr on each machine. herdr's program table has no `omp` entry, so Navigator adds `omp` itself when herdr leaves it out. Picking `omp` on a machine that lacks it leaves a tab with the shell's error.
 
 ## Remote machines
 
@@ -101,9 +121,11 @@ A failed machine's open spaces still show. If `hc machine ls` fails, Navigator l
 ## Programs and commands it runs
 
 > [!IMPORTANT]
-> Navigator runs programs. Each time it opens, it runs `hc machine ls --json`, `zoxide query -l -s` on every listed machine, and `printenv HOME` on every machine other than this computer. herdr-core runs the commands on other machines through its connection to them. Navigator reads no files and makes no network requests of its own.
+> Navigator runs programs. Each time it opens, it runs `hc machine ls --json`, `zoxide query -l -s` on every listed machine, and `printenv HOME` on every machine other than this computer. It also asks herdr-core which agents each machine has, through `knownAgents`. herdr-core runs the commands on other machines through its connection to them. Navigator reads no files and makes no network requests of its own.
 
-It changes herdr-app only through these commands: `space.select`, `space.new`, `space.close`, `agent.focus`, and `pane.close`. For **New space…**, it opens herdr-app's built-in `prompt` mod, which runs `space.new` with the name you type.
+It changes herdr-app only through these commands: `space.select`, `space.new`, `space.close`, `tab.new`, `agent.focus`, and `pane.close`. For **New space…**, it opens herdr-app's built-in `prompt` mod, which runs `space.new` with the name you type.
+
+To start an agent, it runs `tab.new` or `space.new` with an `argv` and, when you typed a first message, a `task`. The `argv` runs the agent through `sh -c`, which calls `hc kill` on the agent's own terminal when the agent exits with code 0.
 
 ## Rebuild the mod or the preview
 
