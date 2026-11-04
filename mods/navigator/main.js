@@ -1,6 +1,6 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { spaces, panes, agents, run, hc, exec, theme, props, openOverlay, closeOverlay, home } from "herdr";
+import { spaces, panes, agents, run, hc, exec, theme, props, openOverlay, closeOverlay, home, knownAgents } from "herdr";
 
 const SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const WINDOW = 12;
@@ -10,6 +10,40 @@ const machineLabel = (machine) => machine ?? "this computer";
 const openKey = (machine, path) => `${machine ?? ""}\0${path}`;
 const firstLine = (text) => (text ?? "").trim().split("\n")[0];
 const tabLabel = (tabName) => (/^\d+$/.test(tabName) ? `tab ${tabName}` : tabName);
+
+const LAUNCHABLE = ["claude", "codex", "pi", "omp"];
+// herdr's program table lacks omp.
+const OMP = { key: "omp", name: "omp", run: ["omp"], installed: null };
+// herdr runs argv inside an interactive shell that outlives it.
+const CLOSE_ON_SUCCESS = '"$@"; [ $? -eq 0 ] && hc kill "$HC_TERMINAL_ID"';
+
+async function loadAgents(machine) {
+  let list;
+  try {
+    list = await knownAgents({ on: machine });
+  } catch {
+    return [];
+  }
+  const launchable = list.filter((a) => LAUNCHABLE.includes(a.key)).map(({ key, name, run, installed }) => ({ key, name, run, installed }));
+  if (!launchable.some((a) => a.key === "omp")) launchable.push(OMP);
+  return launchable;
+}
+
+function tabName(tabs, key) {
+  const taken = new Set(tabs.map((t) => t.name));
+  if (!taken.has(key)) return key;
+  for (let n = 2; ; n++) if (!taken.has(`${key} ${n}`)) return `${key} ${n}`;
+}
+
+function launch(row, agent, task) {
+  const argv = ["sh", "-c", CLOSE_ON_SUCCESS, "agent", ...agent.run];
+  const message = task ? { task } : {};
+  if (row.space) {
+    const tabs = spaces().find((s) => s.id === row.space.id)?.tabs ?? row.space.tabs;
+    run("tab.new", { space: row.space.id, name: tabName(tabs, agent.key), argv, ...message });
+  } else run("space.new", { folder: row.path, argv, ...message, ...(row.machine ? { machine: row.machine } : {}) });
+}
+
 // Agents put spinner frames, icon-font glyphs and one-character status marks ("π >") ahead of
 // their task in the title; keep only the task, so a spinner frame is not a new title.
 const cleanTitle = (title) =>
@@ -184,11 +218,19 @@ function rankedRows(sources, spaceList, folders, agentsBySpace, query, scope, ho
 const KEYS = {
   escape: (nav) => nav.close(),
   enter: (nav, picked) => nav.go(picked, false),
+  "cmd-enter": (nav, picked) => nav.openStep(picked),
   "alt-enter": (nav, picked) => nav.go(picked, true),
   "ctrl-x": (nav, picked) => nav.closeRow(picked),
   "ctrl-w": (nav) => nav.deleteWord(),
   up: (nav, _picked, count) => nav.move(-1, count),
   down: (nav, _picked, count) => nav.move(1, count),
+};
+
+const STEP_KEYS = {
+  backspace: (nav) => (nav.taskInput.value() === "" ? nav.closeStep() : false),
+  enter: (nav) => nav.launchStep(),
+  up: (nav) => nav.moveStep(-1),
+  down: (nav) => nav.moveStep(1),
 };
 
 export default class Navigator extends View {
@@ -202,6 +244,8 @@ export default class Navigator extends View {
     this.sources = new Map([[null, { state: "loading" }]]);
     this.version = 0;
     this.cache = null;
+    this.known = new Map();
+    this.step = null;
     this.input = InputState.new({ placeholder: "Folder, space or machine…" });
     this.input.on("change", (_e, cx) => {
       this.query = this.input.value();
@@ -210,7 +254,14 @@ export default class Navigator extends View {
       this.ranked();
       cx.notify();
     });
-    this.input.on("submit", () => this.go(this.ranked()[this.at], false));
+    // The input reports cmd-enter as a secondary submit.
+    this.input.on("submit", (e, cx) => {
+      if (!e?.secondary) return this.go(this.ranked()[this.at], false);
+      this.openStep(this.ranked()[this.at]);
+      cx.notify();
+    });
+    this.taskInput = InputState.new({ placeholder: "First message (optional)…" });
+    this.taskInput.on("submit", () => this.launchStep());
     // The app keymap has no unbind and init runs on every open, so bind once per app run.
     globalThis.__navigatorTabBound ||= cx.bind_keys([{ keystroke: "tab", action: "navigator.next_scope", context: "Navigator" }]);
     this.input.focus();
@@ -218,7 +269,9 @@ export default class Navigator extends View {
     this.handle = cx.focus_handle();
 
     cx.spawn(async (cx) => {
-      this.setSource(null, await loadSource(null));
+      const [source, known] = await Promise.all([loadSource(null), loadAgents(null)]);
+      this.known.set(null, known);
+      this.setSource(null, source);
       cx.notify();
     });
     cx.spawn(async (cx) => {
@@ -232,7 +285,9 @@ export default class Navigator extends View {
       cx.notify();
       await Promise.all(
         names.map(async (name) => {
-          this.setSource(name, await loadSource(name));
+          const [source, known] = await Promise.all([loadSource(name), loadAgents(name)]);
+          this.known.set(name, known);
+          this.setSource(name, source);
           cx.notify();
         }),
       );
@@ -335,6 +390,33 @@ export default class Navigator extends View {
     this.ranked();
   }
 
+  openStep(picked) {
+    if (this.step || !picked || picked.row.kind === "new") return;
+    this.step = { picked, at: 0 };
+    this.taskInput.set_value("");
+    this.taskInput.focus();
+  }
+
+  closeStep() {
+    this.step = null;
+    this.input.focus();
+  }
+
+  moveStep(step) {
+    const count = this.known.get(this.step.picked.row.machine)?.length ?? 0;
+    if (count) this.step.at = (this.step.at + step + count) % count;
+  }
+
+  launchStep(at = this.step?.at) {
+    if (!this.step || this.done) return;
+    const { row } = this.step.picked;
+    const agent = this.known.get(row.machine)?.[at];
+    if (!agent || agent.installed === false) return;
+    this.done = true;
+    this.close();
+    launch(row, agent, this.taskInput.value().trim());
+  }
+
   glyph(t, row) {
     const box = div().w(13).flex_none();
     if (row.kind === "folder" || row.kind === "new") return box.text_color(t.dim).child("+");
@@ -409,6 +491,58 @@ export default class Navigator extends View {
       return el.child(`${machineLabel(machine)} ${source.folders.length}`);
     };
 
+    const inputBox = (state, count) =>
+      h_flex()
+        .h(36)
+        .flex_none()
+        .px(10)
+        .gap(8)
+        .items_center()
+        .rounded(9)
+        .border_1()
+        .border_color(t.accent)
+        .bg(t.background)
+        .child(Input.new(state).flex_1().h_full().text_size(12.8).text_color(t.foreground))
+        .child(div().text_size(11).text_color(t.dim).child(count));
+
+    const stepView = () => {
+      const { picked } = this.step;
+      const { row } = picked;
+      const where = `${row.space ? row.space.name : picked.base}${row.machine ? ` on ${row.machine}` : ""}${row.space ? "" : " (new space)"}`;
+      return v_flex()
+        .gap(6)
+        .child(div().text_size(11.5).text_color(t.dim).child(`Launch in ${where}`))
+        .child(inputBox(this.taskInput, ""));
+    };
+
+    const agentRows = () => {
+      const { picked, at } = this.step;
+      const list = this.known.get(picked.row.machine);
+      const note = (text) => [h_flex().mx(4).px(10).h(32).flex_none().items_center().text_color(t.dim).child(text)];
+      if (!list) return note(`Asking ${machineLabel(picked.row.machine)} which agents it has…`);
+      if (!list.length) return note(`No agents found on ${machineLabel(picked.row.machine)}`);
+      const target = picked.row.space ? "new tab" : "new space";
+      return list.map((a, i) => {
+        const missing = a.installed === false;
+        return h_flex()
+          .id(`nav-agent-${i}`)
+          .mx(4)
+          .px(10)
+          .h(32)
+          .flex_none()
+          .rounded(7)
+          .gap(10)
+          .items_center()
+          .cursor_pointer()
+          .when(i === at, (el) => el.bg(t.selected))
+          .hover((s) => s.bg(t.hover))
+          .on_click(() => this.launchStep(i))
+          .child(div().flex_none().w(140).truncate().text_color(missing ? t.dim : t.foreground).font_semibold().child(a.name))
+          .child(div().flex_1().truncate().text_size(11.5).text_color(t.dim).child(a.run.join(" ")))
+          .child(div().w(80).flex_none().text_size(11).text_color(missing ? t.muted : t.accent).child(missing ? "not installed" : target));
+      });
+    };
+
     return v_flex()
       .id("navigator")
       .track_focus(this.handle)
@@ -425,13 +559,13 @@ export default class Navigator extends View {
         cx.notify();
       })
       .on_key_down((e, cx) => {
-        const action = KEYS[e.keystroke];
+        const action = (this.step ? STEP_KEYS : KEYS)[e.keystroke];
         if (e.keystroke !== "ctrl-x" && this.armed !== null) {
           this.armed = null;
           cx.notify();
         }
         if (!action) return;
-        action(this, selected, ranked.length);
+        if (action(this, selected, ranked.length) === false) return;
         cx.stop_propagation();
         cx.notify();
       })
@@ -443,21 +577,8 @@ export default class Navigator extends View {
           .child(div().flex_1())
           .child(div().text_size(11).text_color(t.dim).child("tab switches machine")),
       )
-      .child(
-        h_flex()
-          .h(36)
-          .flex_none()
-          .px(10)
-          .gap(8)
-          .items_center()
-          .rounded(9)
-          .border_1()
-          .border_color(t.accent)
-          .bg(t.background)
-          .child(Input.new(this.input).flex_1().h_full().text_size(12.8).text_color(t.foreground))
-          .child(div().text_size(11).text_color(t.dim).child(`${ranked.length - 1}`)),
-      )
-      .child(v_flex().min_h(0).children(shown.map(rowView)))
+      .child(this.step ? stepView() : inputBox(this.input, `${ranked.length - 1}`))
+      .child(v_flex().min_h(0).children(this.step ? agentRows() : shown.map(rowView)))
       .child(
         v_flex()
           .pt(6)
@@ -469,10 +590,10 @@ export default class Navigator extends View {
           .child(
             h_flex()
               .gap(14)
-              .child("↵ go to / new")
-              .child("⌥↵ new space anyway")
-              .child(armed ? div().text_color(t.accent).child(`⌃X again closes ${armed.row.agent.app} in ${armed.base}`) : "⌃X close")
-              .child("esc close")
+              .children(this.step ? ["↵ launch", "↑↓ agent", "⌫ back", "esc close"] : ["↵ go to / new", "⌘↵ agent", "⌥↵ new space"])
+              .when(!this.step, (el) =>
+                el.child(armed ? div().text_color(t.accent).child(`⌃X again closes ${armed.row.agent.app} in ${armed.base}`) : "⌃X close").child("esc close"),
+              )
               .child(div().flex_1())
               .child(h_flex().gap(10).children(states.map(machineState))),
           )
