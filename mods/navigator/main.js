@@ -240,6 +240,7 @@ export default class Navigator extends View {
     this.scope = ALL;
     this.done = false;
     this.armed = null;
+    this.cmdHeld = false;
     this.machines = [null];
     this.sources = new Map([[null, { state: "loading" }]]);
     this.version = 0;
@@ -468,7 +469,11 @@ export default class Navigator extends View {
         .child(div().flex_none().max_w(220).truncate().text_color(t.foreground).when(open, (d) => d.font_semibold()).child(picked.base))
         .child(div().flex_1().truncate().text_size(11.5).text_color(t.dim).child(picked.display))
         .when(row.machine !== null, (el) => el.child(this.chip(t, row.machine, false)))
-        .child(div().w(42).flex_none().text_size(11).text_color(open ? t.accent : t.dim).child(open ? "go to" : "new"));
+        .child(
+          this.cmdHeld && row.kind !== "new"
+            ? div().w(60).flex_none().text_size(11).text_color(t.accent).child("run agent")
+            : div().w(42).flex_none().text_size(11).text_color(open ? t.accent : t.dim).child(open ? "go to" : "new"),
+        );
     };
 
     const scopeChip = (scope) =>
@@ -556,6 +561,11 @@ export default class Navigator extends View {
       .on_action("navigator.next_scope", (_e, cx) => {
         this.armed = null;
         this.nextScope();
+        cx.notify();
+      })
+      .on_modifiers_changed((e, cx) => {
+        if (this.cmdHeld === e.modifiers.platform) return;
+        this.cmdHeld = e.modifiers.platform;
         cx.notify();
       })
       .on_key_down((e, cx) => {
