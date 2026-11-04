@@ -14,8 +14,9 @@ const tabLabel = (tabName) => (/^\d+$/.test(tabName) ? `tab ${tabName}` : tabNam
 const LAUNCHABLE = ["claude", "codex", "pi", "omp"];
 // herdr's program table lacks omp.
 const OMP = { key: "omp", name: "omp", run: ["omp"], installed: null };
-// herdr runs argv inside an interactive shell that outlives it.
-const CLOSE_ON_SUCCESS = '"$@"; [ $? -eq 0 ] && hc kill "$HC_TERMINAL_ID"';
+// The inner interactive shell runs agents defined as functions in the person's shell config.
+const CLOSE_ON_SUCCESS = '"${SHELL:-sh}" -i -c "$1"; [ $? -eq 0 ] && hc kill "$HC_TERMINAL_ID"';
+const shellWord = (word) => (/^[A-Za-z0-9_\/.:=@%+,-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`);
 
 async function loadAgents(machine) {
   let list;
@@ -36,7 +37,7 @@ function tabName(tabs, key) {
 }
 
 function launch(row, agent, task) {
-  const argv = ["sh", "-c", CLOSE_ON_SUCCESS, "agent", ...agent.run];
+  const argv = ["sh", "-c", CLOSE_ON_SUCCESS, "agent", agent.run.map(shellWord).join(" ")];
   const message = task ? { task } : {};
   if (row.space) {
     const tabs = spaces().find((s) => s.id === row.space.id)?.tabs ?? row.space.tabs;
@@ -262,17 +263,21 @@ export default class Navigator extends View {
       cx.notify();
     });
     this.taskInput = InputState.new({ placeholder: "First message (optional)…" });
-    this.taskInput.on("submit", () => this.launchStep());
+    this.taskInput.on("submit", (e) => {
+      if (!e?.secondary) this.launchStep();
+    });
     // The app keymap has no unbind and init runs on every open, so bind once per app run.
     globalThis.__navigatorTabBound ||= cx.bind_keys([{ keystroke: "tab", action: "navigator.next_scope", context: "Navigator" }]);
     this.input.focus();
-    cx.timer.after(600, () => this.input.focus());
+    cx.timer.after(600, () => (this.step ? this.taskInput : this.input).focus());
     this.handle = cx.focus_handle();
 
     cx.spawn(async (cx) => {
-      const [source, known] = await Promise.all([loadSource(null), loadAgents(null)]);
-      this.known.set(null, known);
-      this.setSource(null, source);
+      this.setSource(null, await loadSource(null));
+      cx.notify();
+    });
+    cx.spawn(async (cx) => {
+      this.known.set(null, await loadAgents(null));
       cx.notify();
     });
     cx.spawn(async (cx) => {
@@ -285,12 +290,18 @@ export default class Navigator extends View {
       for (const name of names) this.setSource(name, { state: "loading" });
       cx.notify();
       await Promise.all(
-        names.map(async (name) => {
-          const [source, known] = await Promise.all([loadSource(name), loadAgents(name)]);
-          this.known.set(name, known);
-          this.setSource(name, source);
-          cx.notify();
-        }),
+        names.map((name) =>
+          Promise.all([
+            loadSource(name).then((source) => {
+              this.setSource(name, source);
+              cx.notify();
+            }),
+            loadAgents(name).then((known) => {
+              this.known.set(name, known);
+              cx.notify();
+            }),
+          ]),
+        ),
       );
     });
   }

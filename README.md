@@ -125,7 +125,7 @@ A failed machine's open spaces still show. If `hc machine ls` fails, Navigator l
 
 It changes herdr-app only through these commands: `space.select`, `space.new`, `space.close`, `tab.new`, `agent.focus`, and `pane.close`. For **New space…**, it opens herdr-app's built-in `prompt` mod, which runs `space.new` with the name you type.
 
-To start an agent, it runs `tab.new` or `space.new` with an `argv` and, when you typed a first message, a `task`. The `argv` runs the agent through `sh -c`, which calls `hc kill` on the agent's own terminal when the agent exits with code 0.
+To start an agent, it runs `tab.new` or `space.new` with an `argv` and, when you typed a first message, a `task`. The `argv` runs `sh -c`, which starts `$SHELL -i -c "<command>"` so agents defined as shell functions work, then calls `hc kill` on the agent's own terminal when the agent exits with code 0.
 
 ## Rebuild the mod or the preview
 
